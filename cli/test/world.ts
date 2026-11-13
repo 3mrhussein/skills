@@ -1,7 +1,7 @@
 // The test world: a temporary home with its own git config, local bare repos
 // standing in for the set and for sources, and `moro` run in-process.
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { onTestFinished } from "vitest";
@@ -10,10 +10,19 @@ import type { Env } from "../src/locations.js";
 import { type Answer, type Prompter, recommendedFirst, type SelectRequest } from "../src/prompter.js";
 import { runSkills, type SkillsResult } from "../src/skills-cli.js";
 
-/** The fake host that the world's git config rewrites to its local bare repos. */
+/**
+ * A fake host the world's git config rewrites to its local bare repos. GitHub URLs
+ * are rewritten to the same repos, so `owner/repo` refs never leave the machine.
+ */
 const HOST = "https://git.moro.test/";
 
-export type Files = Record<string, string>;
+/** The global git identity, standing in for the company one on the owner's machine. */
+export const GLOBAL_IDENTITY = "Company Name <someone@company.test>";
+/** The repo-level identity of the set's clone. */
+export const SET_IDENTITY = "3mrhussein <owner@moro.test>";
+
+/** Files by path: text, or text with a mode, or a symlink's target. */
+export type Files = Record<string, string | { content: string | Buffer; mode?: number } | { symlink: string }>;
 
 /** A scripted answer: a choice by its value, or a typed answer. */
 export type ScriptedAnswer = string | { typed: string };
@@ -31,6 +40,12 @@ export interface Repo {
   url: string;
   /** Commits `files` on the default branch and pushes; returns the full SHA. */
   commit(files: Files, message?: string): string;
+  /** The full SHA of the default branch's latest commit. */
+  head(): string;
+  /** Tags the latest commit and pushes the tag. */
+  tag(name: string): void;
+  /** Commits `files` on a new branch off the default one and pushes it; returns the full SHA. */
+  branch(name: string, files: Files): string;
 }
 
 export interface World {
@@ -45,6 +60,10 @@ export interface World {
   /** Creates a source repo, e.g. `source("mattpocock/skills", files)`. */
   source(name: string, files: Files): Repo;
   run(argv: string[], options?: { answers?: ScriptedAnswer[]; cwd?: string }): Promise<RunResult>;
+  /** Clones the set with its repo-level identity; returns the clone's path. */
+  cloneSet(options?: { identity?: boolean }): string;
+  /** Runs git in the world; returns trimmed stdout. */
+  git(args: string[], cwd: string): string;
   /** Runs the real, pinned `skills` CLI in the world. */
   skills(args: string[], options?: { cwd?: string }): Promise<SkillsResult>;
   /** The user-level lock, or undefined when nothing is installed. */
@@ -70,7 +89,16 @@ export function createWorld(options: { set?: Files } = {}): World {
   mkdirSync(project);
   writeFileSync(
     join(home, ".gitconfig"),
-    `[url "file://${remotes}/"]\n\tinsteadOf = ${HOST}\n`,
+    [
+      `[url "file://${remotes}/"]`,
+      `\tinsteadOf = ${HOST}`,
+      `\tinsteadOf = https://github.com/`,
+      `\tinsteadOf = git@github.com:`,
+      `[user]`,
+      `\tname = Company Name`,
+      `\temail = someone@company.test`,
+      "",
+    ].join("\n"),
   );
 
   // Built from scratch so nothing from the real machine leaks in.
@@ -104,8 +132,20 @@ export function createWorld(options: { set?: Files } = {}): World {
         writeFiles(work, files);
         git(["add", "-A"], work);
         git([...IDENTITY, "commit", "-q", "--allow-empty", "-m", message], work);
-        git(["push", "-q", "origin", "main"], work);
+        git(["push", "-q", "origin", "HEAD"], work);
         return git(["rev-parse", "HEAD"], work);
+      },
+      head: () => git(["rev-parse", "HEAD"], work),
+      branch(name, files) {
+        git(["checkout", "-q", "-b", name], work);
+        const sha = repo.commit(files);
+        git(["push", "-q", "origin", name], work);
+        git(["checkout", "-q", "main"], work);
+        return sha;
+      },
+      tag(name) {
+        git(["tag", name], work);
+        git(["push", "-q", "origin", name], work);
       },
     };
     repo.commit(files, "initial");
@@ -119,6 +159,16 @@ export function createWorld(options: { set?: Files } = {}): World {
     env,
     set: createRepo("3mrhussein/skills", options.set ?? {}),
     source: createRepo,
+    git,
+    cloneSet({ identity = true } = {}) {
+      const clone = join(root, "clone");
+      git(["clone", "-q", `${HOST}3mrhussein/skills.git`, clone], root);
+      if (identity) {
+        git(["config", "user.name", "3mrhussein"], clone);
+        git(["config", "user.email", "owner@moro.test"], clone);
+      }
+      return clone;
+    },
     async run(argv, { answers = [], cwd = project } = {}) {
       let stdout = "";
       let stderr = "";
@@ -148,9 +198,15 @@ export function createWorld(options: { set?: Files } = {}): World {
 }
 
 export function writeFiles(dir: string, files: Files): void {
-  for (const [path, content] of Object.entries(files)) {
-    mkdirSync(dirname(join(dir, path)), { recursive: true });
-    writeFileSync(join(dir, path), content);
+  for (const [path, file] of Object.entries(files)) {
+    const target = join(dir, path);
+    mkdirSync(dirname(target), { recursive: true });
+    if (typeof file === "string") writeFileSync(target, file);
+    else if ("symlink" in file) symlinkSync(file.symlink, target);
+    else {
+      writeFileSync(target, file.content);
+      if (file.mode !== undefined) chmodSync(target, file.mode);
+    }
   }
 }
 
