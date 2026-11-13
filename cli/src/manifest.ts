@@ -59,3 +59,8 @@ export function addSource(manifest: Manifest, repo: string): string {
 export function hasSkill(manifest: Manifest, name: string): boolean {
   return Object.hasOwn(manifest.skills, name);
 }
+
+/** The key of the set's skill taken from `path` in this source, if any. */
+export function keyFor(manifest: Manifest, sourceId: string, path: string): string | undefined {
+  return Object.entries(manifest.skills).find(([, skill]) => skill.source === sourceId && skill.path === path)?.[0];
+}

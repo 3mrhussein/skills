@@ -7,7 +7,7 @@ import { dirname, join } from "node:path";
 import { onTestFinished } from "vitest";
 import { main } from "../src/main.js";
 import type { Env } from "../src/locations.js";
-import { type Answer, type Prompter, recommendedFirst, type SelectRequest } from "../src/prompter.js";
+import { type Answer, type MultiSelectRequest, type Prompter, recommendedFirst, type SelectRequest } from "../src/prompter.js";
 import { runSkills, type SkillsResult } from "../src/skills-cli.js";
 
 /**
@@ -24,15 +24,17 @@ export const SET_IDENTITY = "3mrhussein <owner@moro.test>";
 /** Files by path: text, or text with a mode, or a symlink's target. */
 export type Files = Record<string, string | { content: string | Buffer; mode?: number } | { symlink: string }>;
 
-/** A scripted answer: a choice by its value, or a typed answer. */
-export type ScriptedAnswer = string | { typed: string };
+/** A scripted answer: a choice by its value, a typed answer, or the values picked in a multi-select. */
+export type ScriptedAnswer = string | { typed: string } | string[];
+
+export type Prompt = SelectRequest | MultiSelectRequest;
 
 export interface RunResult {
   code: number;
   stdout: string;
   stderr: string;
   /** Every selection prompt `moro` asked, in order. */
-  prompts: SelectRequest[];
+  prompts: Prompt[];
 }
 
 export interface Repo {
@@ -210,6 +212,11 @@ export function writeFiles(dir: string, files: Files): void {
   }
 }
 
+/** The set's manifest in a clone, as parsed JSON. */
+export function readManifest(clone: string): any {
+  return JSON.parse(readFileSync(join(clone, "manifest.json"), "utf8"));
+}
+
 /** A `SKILL.md` with frontmatter. */
 export function skillMd(name: string): string {
   return `---\nname: ${name}\ndescription: Use for ${name}.\n---\n\nThe ${name} skill.\n`;
@@ -217,11 +224,11 @@ export function skillMd(name: string): string {
 
 /** Answers each prompt from the script, in order, and fails on anything unexpected. */
 function scriptedPrompter(script: ScriptedAnswer[]): Prompter & {
-  asked: SelectRequest[];
+  asked: Prompt[];
   remaining(): number;
 } {
   const queue = [...script];
-  const asked: SelectRequest[] = [];
+  const asked: Prompt[] = [];
   return {
     asked,
     remaining: () => queue.length,
@@ -230,6 +237,7 @@ function scriptedPrompter(script: ScriptedAnswer[]): Prompter & {
       recommendedFirst(request);
       const next = queue.shift();
       if (next === undefined) throw new Error(`Unscripted prompt: ${request.message}`);
+      if (Array.isArray(next)) throw new Error(`Prompt picks one, not several: ${request.message}`);
       if (typeof next === "object") {
         if (!request.allowTyped) throw new Error(`Prompt takes no typed answer: ${request.message}`);
         return { typed: next.typed };
@@ -238,6 +246,18 @@ function scriptedPrompter(script: ScriptedAnswer[]): Prompter & {
         throw new Error(`"${next}" is not a choice in: ${request.message}`);
       }
       return { value: next };
+    },
+    async multiSelect(request): Promise<string[]> {
+      asked.push(request);
+      const next = queue.shift();
+      if (next === undefined) throw new Error(`Unscripted prompt: ${request.message}`);
+      if (!Array.isArray(next)) throw new Error(`Prompt picks several, not one: ${request.message}`);
+      for (const value of next) {
+        const choice = request.choices.find((candidate) => candidate.value === value);
+        if (!choice) throw new Error(`"${value}" is not a choice in: ${request.message}`);
+        if (choice.disabled) throw new Error(`"${value}" is greyed out in: ${request.message}`);
+      }
+      return request.choices.filter((choice) => next.includes(choice.value)).map((choice) => choice.value);
     },
   };
 }

@@ -18,8 +18,16 @@ export interface SelectRequest {
 
 export type Answer = { value: string } | { typed: string };
 
+export interface MultiSelectRequest {
+  message: string;
+  /** Nothing starts picked. A disabled choice is shown greyed out, with the reason, and can't be picked. */
+  choices: (Choice & { disabled?: string })[];
+}
+
 export interface Prompter {
   select(request: SelectRequest): Promise<Answer>;
+  /** The values picked, in the order the choices are listed. */
+  multiSelect(request: MultiSelectRequest): Promise<string[]>;
 }
 
 /** The prompter for a real terminal: a numbered list, Enter for the recommended option. */
@@ -59,6 +67,25 @@ export function createTerminalPrompter(streams: {
         out.write(`Pick a number from 1 to ${ordered.length}, or press Enter for 1.\n`);
       }
     },
+    async multiSelect(request) {
+      const out = streams.output;
+      const pickable = request.choices.filter((choice) => !choice.disabled);
+      const grey = (text: string) => ("isTTY" in out && out.isTTY ? `\x1b[2m${text}\x1b[22m` : text);
+      out.write(`\n${request.message}\n`);
+      let number = 0;
+      for (const choice of request.choices) {
+        if (choice.disabled) out.write(`${grey(`  -  ${choice.label} (${choice.disabled})`)}\n`);
+        else out.write(`  ${++number}. ${choice.label}\n`);
+      }
+      out.write("  Type the numbers to take (like 1 3 5-7), or all; Enter takes none.\n");
+
+      for (;;) {
+        out.write("> ");
+        const picked = parsePicks((await nextLine()).trim(), pickable.length);
+        if (picked) return pickable.filter((_, index) => picked.has(index + 1)).map((choice) => choice.value);
+        out.write(`Pick numbers from 1 to ${pickable.length}, or all, or press Enter for none.\n`);
+      }
+    },
     close() {
       rl?.close();
     },
@@ -70,4 +97,22 @@ export function recommendedFirst(request: SelectRequest): Choice[] {
   const recommended = request.choices.find((choice) => choice.value === request.recommended);
   if (!recommended) throw new Error(`The recommended option isn't a choice: ${request.recommended}`);
   return [recommended, ...request.choices.filter((choice) => choice !== recommended)];
+}
+
+/** The numbers in `1 3 5-7` or `all`, or undefined when the text isn't that or names a number outside 1..count. */
+function parsePicks(text: string, count: number): Set<number> | undefined {
+  const picked = new Set<number>();
+  if (text === "all") {
+    for (let number = 1; number <= count; number++) picked.add(number);
+    return picked;
+  }
+  for (const part of text.split(/[\s,]+/).filter(Boolean)) {
+    const range = /^(\d+)(?:-(\d+))?$/.exec(part);
+    if (!range) return undefined;
+    const first = Number(range[1]);
+    const last = Number(range[2] ?? range[1]);
+    if (first < 1 || last > count || first > last) return undefined;
+    for (let number = first; number <= last; number++) picked.add(number);
+  }
+  return picked;
 }

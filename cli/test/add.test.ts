@@ -1,11 +1,7 @@
 import { chmodSync, existsSync, lstatSync, readFileSync, readlinkSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { createWorld, SET_IDENTITY, skillMd, type World, writeFiles } from "./world.js";
-
-function readManifest(clone: string) {
-  return JSON.parse(readFileSync(join(clone, "manifest.json"), "utf8"));
-}
+import { createWorld, readManifest, SET_IDENTITY, skillMd, type World, writeFiles } from "./world.js";
 
 function log(world: World, clone: string): string[] {
   return world.git(["log", "--format=%an <%ae>|%s%n%b"], clone).split("\n").filter(Boolean);
@@ -253,7 +249,9 @@ test("several skills from one source make one commit, and own skills get no mani
   expect(result.code, result.stderr).toBe(0);
   expect(Object.keys(readManifest(clone).skills)).toEqual(["one", "two"]);
   expect(log(world, clone)).toEqual([`${SET_IDENTITY}|add: tools one two`, `world <world@moro.test>|initial`]);
-  expect(result.stdout).toContain("Added one, two from tools in one commit.\n\nNext: run `git push` in the set's clone.");
+  expect(result.stdout).toContain(
+    "Added one, two from tools in one commit.\nPushed.\n\nNext: run `moro refresh` on each machine that should have them.\n",
+  );
 });
 
 test("the commit takes only intake's files, leaving the owner's other changes as they were", async () => {

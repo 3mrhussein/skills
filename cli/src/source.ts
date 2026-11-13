@@ -24,6 +24,13 @@ export type SkillFile =
   | { path: string; content: Buffer; mode: number }
   | { path: string; symlink: string };
 
+/** The source has no branch, tag or commit by this name. */
+export class UnknownRevisionError extends Error {
+  constructor(readonly revision: string) {
+    super(`No branch, tag or commit named ${revision}`);
+  }
+}
+
 /** Clones `url` and checks out `revision`, or the default branch's HEAD. */
 export async function checkout(git: Git, url: string, revision: string | undefined): Promise<Checkout> {
   const dir = mkdtempSync(join(tmpdir(), "moro-source-"));
@@ -42,7 +49,11 @@ export async function checkout(git: Git, url: string, revision: string | undefin
 /** A commit, tag or local branch, or else a branch on the source's remote. */
 async function resolveCommit(git: Git, dir: string, revision: string): Promise<string> {
   const verify = (name: string) => git(["rev-parse", "--verify", "--quiet", `${name}^{commit}`], dir);
-  return verify(revision).catch(() => verify(`origin/${revision}`));
+  return verify(revision)
+    .catch(() => verify(`origin/${revision}`))
+    .catch(() => {
+      throw new UnknownRevisionError(revision);
+    });
 }
 
 /** Every folder holding a `SKILL.md`, with its frontmatter `name`, under `subpath` when given. */
