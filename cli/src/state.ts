@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { readDevice } from "./device.js";
 import { type Git, gitRunner } from "./git.js";
 import { BUILD_OLDER, SYNC_OLD, UNPUSHED, UP_TO_DATE } from "./hints.js";
+import { projectStatus } from "./install.js";
 import { readLocations } from "./locations.js";
 import type { MoroIo } from "./main.js";
 
@@ -13,8 +14,7 @@ const SYNC_STALE_DAYS = 30;
 export async function status(io: MoroIo): Promise<number> {
   const git = gitRunner(io.env);
   if (await inProject(git, io.cwd)) {
-    // Ticket 12 fills this branch in: the divergence report and its one next step.
-    return 0;
+    return projectStatus(io, git);
   }
   const locations = readLocations(io.env);
   const clone = readDevice(locations.deviceFile)!.clone;

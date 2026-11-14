@@ -7,11 +7,13 @@
 import { appendFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { readDevice } from "./device.js";
+import { cloneCopy, diffFolders, diverge, projectCopy, needsRerun, reportLines, type Divergence } from "./divergence.js";
 import { gitRunner } from "./git.js";
+import { RERUN_SETUP, UP_TO_DATE } from "./hints.js";
 import { readLocations } from "./locations.js";
 import type { MoroIo } from "./main.js";
 import { readManifest } from "./manifest.js";
-import type { MultiSelectRequest } from "./prompter.js";
+import { askYesNo, type MultiSelectRequest } from "./prompter.js";
 import { localOnlySkills, LOCAL_ONLY_DIR, skillFolder, skillsWithGroups } from "./set-layout.js";
 import { runSkills } from "./skills-cli.js";
 import { UserError } from "./user-error.js";
@@ -42,14 +44,33 @@ export async function install(io: MoroIo, argv: string[]): Promise<number> {
   const current = installedSkills(top);
   const firstInstall = current.length === 0;
 
+  const divergence = diverge(top, clone, offers, current);
+  writeReport(io, divergence);
+  const hasLabel = (name: string, label: "loose" | "edited here" | "set changed") => !!divergence.labels.get(name)?.includes(label);
+
   const rules = readRules(clone, offers);
-  const start = offers.filter((offer) => (firstInstall ? offer.recommended : current.includes(offer.name))).map((offer) => offer.name);
+  const start = offers
+    .filter((offer) => (firstInstall ? offer.recommended : current.includes(offer.name)))
+    .map((offer) => offer.name)
+    .filter((name) => !(yes && hasLabel(name, "loose")));
+  // `--yes` lets go of what the set no longer holds; the picker keeps it ticked until the owner unticks it.
   const chosen = yes
     ? start
-    : await io.prompter.multiSelect(offerChoices(offers, new Set(start), lockedSkills(rules, start)));
+    : await io.prompter.multiSelect(offerChoices(offers, new Set([...start, ...divergence.gone]), lockedSkills(rules, start), divergence));
   const { picks, reasons } = withLocked(rules, chosen);
 
-  const { add, remove } = plan(offers, current, picks);
+  const planned = plan(offers, current, picks, divergence.gone);
+  const remove = planned.remove;
+  const add = planned.add.filter((name) => !(yes && hasLabel(name, "loose")));
+  // Set changed skills come again from the clone; edited here and loose ones only when the owner agrees.
+  const update = picks.filter((name) => current.includes(name) && hasLabel(name, "set changed") && !hasLabel(name, "edited here"));
+  if (!yes) {
+    for (const name of picks.filter((pick) => hasLabel(pick, "edited here") || hasLabel(pick, "loose"))) {
+      if (await useSetCopy(io, top, clone, offers.find((offer) => offer.name === name)!)) {
+        if (hasLabel(name, "edited here")) update.push(name);
+      } else if (hasLabel(name, "loose")) add.splice(add.indexOf(name), 1);
+    }
+  }
 
   let keepOut = false;
   if (firstInstall && add.length > 0) {
@@ -60,11 +81,33 @@ export async function install(io: MoroIo, argv: string[]): Promise<number> {
   keepOut ||= !firstInstall && existsSync(excludeFile) && readFileSync(excludeFile, "utf8").split("\n").includes(`/${LOCK_FILE}`);
 
   const localAdds = add.filter((name) => offers.find((offer) => offer.name === name)?.localOnly);
-  await apply(io, { clone, top, add, remove, offers });
+  await apply(io, { clone, top, add: [...add, ...update], remove, offers });
   if (keepOut && add.length > 0) excludeFromGit(top, excludeFile, add, true);
   else if (localAdds.length > 0) excludeFromGit(top, excludeFile, localAdds, false);
 
-  return summary(io, { add, remove, keepOut, reasons });
+  return summary(io, { add, update, remove, keepOut, reasons });
+}
+
+/** Bare `moro` in a project: the divergence report and the one next step. */
+export async function projectStatus(io: MoroIo, git: ReturnType<typeof gitRunner>): Promise<number> {
+  const top = await projectTop(git, io.cwd);
+  const clone = readDevice(readLocations(io.env).deviceFile)!.clone;
+  const divergence = diverge(top, clone, readOffers(clone), installedSkills(top));
+  writeReport(io, divergence);
+  io.stdout.write(`${needsRerun(divergence) ? RERUN_SETUP : UP_TO_DATE}\n`);
+  return 0;
+}
+
+function writeReport(io: MoroIo, divergence: Divergence): void {
+  const lines = reportLines(divergence);
+  if (lines.length > 0) io.stdout.write(`This project against the set:\n${lines.map((line) => `  ${line}`).join("\n")}\n\n`);
+}
+
+/** Shows how the project's copy differs from the clone's, then asks whether the set's copy replaces it. */
+async function useSetCopy(io: MoroIo, top: string, clone: string, offer: Offer): Promise<boolean> {
+  const mine = projectCopy(top, offer.name)!;
+  io.stdout.write(`${offer.name}: the project's copy differs from the set's.\n${diffFolders(mine, cloneCopy(clone, offer))}\n`);
+  return askYesNo(io.prompter, `Use the set's copy of ${offer.name}?`, "no");
 }
 
 function parseArgs(argv: string[]): boolean {
@@ -164,10 +207,14 @@ function installedSkills(top: string): string[] {
 }
 
 /** Recommended skills first, then experimental ones, each under its group; `ticked` start picked. */
-function offerChoices(offers: Offer[], ticked: Set<string>, locked: Map<string, string>): MultiSelectRequest {
+function offerChoices(offers: Offer[], ticked: Set<string>, locked: Map<string, string>, divergence: Divergence): MultiSelectRequest {
+  const labelled = (name: string) => {
+    const labels = divergence.labels.get(name);
+    return labels ? `${name} (${labels.join(", ")})` : name;
+  };
   const choice = (offer: Offer, section: string) => ({
     value: offer.name,
-    label: offer.name,
+    label: labelled(offer.name),
     section,
     group: offer.group,
     picked: ticked.has(offer.name) || locked.has(offer.name),
@@ -178,6 +225,7 @@ function offerChoices(offers: Offer[], ticked: Set<string>, locked: Map<string, 
     choices: [
       ...offers.filter((offer) => offer.recommended).map((offer) => choice(offer, "Recommended")),
       ...offers.filter((offer) => !offer.recommended).map((offer) => choice(offer, "Experimental")),
+      ...divergence.gone.map((name) => ({ value: name, label: labelled(name), section: "Gone from the set", picked: ticked.has(name) })),
     ],
   };
 }
@@ -195,8 +243,8 @@ async function askKeepOut(io: MoroIo): Promise<boolean> {
 }
 
 /** What to add and remove so the project's offered skills match the picks. */
-function plan(offers: Offer[], current: string[], picks: string[]): { add: string[]; remove: string[] } {
-  const offered = new Set(offers.map((offer) => offer.name));
+function plan(offers: Offer[], current: string[], picks: string[], gone: string[]): { add: string[]; remove: string[] } {
+  const offered = new Set([...offers.map((offer) => offer.name), ...gone]);
   return {
     add: picks.filter((name) => !current.includes(name)).sort(),
     // A skill installed from somewhere else isn't the set's to remove.
@@ -253,8 +301,8 @@ function isLink(path: string): boolean {
   }
 }
 
-function summary(io: MoroIo, result: { add: string[]; remove: string[]; keepOut: boolean; reasons: Map<string, string> }): number {
-  if (result.add.length === 0 && result.remove.length === 0) {
+function summary(io: MoroIo, result: { add: string[]; update: string[]; remove: string[]; keepOut: boolean; reasons: Map<string, string> }): number {
+  if (result.add.length === 0 && result.update.length === 0 && result.remove.length === 0) {
     io.stdout.write("Up to date.\n");
     return 0;
   }
@@ -262,6 +310,7 @@ function summary(io: MoroIo, result: { add: string[]; remove: string[]; keepOut:
   for (const [name, reason] of result.reasons) {
     if (result.add.includes(name)) io.stdout.write(`  ${name}: ${reason}.\n`);
   }
+  if (result.update.length > 0) io.stdout.write(`Updated: ${result.update.join(", ")}.\n`);
   if (result.remove.length > 0) io.stdout.write(`Removed: ${result.remove.join(", ")}.\n`);
   const next = result.keepOut
     ? "restart your agent in this project; the skills are kept out of git."

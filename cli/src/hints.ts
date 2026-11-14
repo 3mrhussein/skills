@@ -13,6 +13,7 @@ export const NO_DEVICE_FILE = `This device has no device file, so moro doesn't k
 export const BUILD_OLDER = "Next: rerun ./install.sh, because the moro build is older than the clone's cli/.";
 export const UNPUSHED = "Next: push the clone's commits (git push).";
 export const SYNC_OLD = "Next: run `moro sync` to check upstream skills.";
+export const RERUN_SETUP = "Next: rerun `/setup-moro-skills`.";
 export const UP_TO_DATE = "Up to date.";
 
 /**
