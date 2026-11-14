@@ -176,3 +176,55 @@ test("a name in both skills/ and local-only/ stops the install, naming both path
 test("the set ignores local-only/ in git", () => {
   expect(readFileSync(join(__dirname, "../../.gitignore"), "utf8").split("\n")).toContain("local-only/");
 });
+
+test("--pick answers the picker and --commit answers the question, so a skill can relay both without prompts", async () => {
+  const world = setup();
+
+  const result = await world.run(["install", "--pick", "diagnose", "tdd", "--commit"]);
+
+  expect(result.code, result.stderr).toBe(0);
+  expect(result.prompts).toEqual([]);
+  expect(installed(world.project)).toEqual(["diagnose", "tdd"]);
+  expect(world.git(["status", "--porcelain"], world.project)).toContain("skills-lock.json");
+});
+
+test("--keep-out answers the question the other way, and a rerun with --pick removes what isn't named", async () => {
+  const world = setup();
+
+  const first = await world.run(["install", "--pick", "tdd", "grill", "--keep-out"]);
+  expect(first.code, first.stderr).toBe(0);
+  expect(first.prompts).toEqual([]);
+  expect(world.git(["status", "--porcelain"], world.project)).toBe("");
+
+  const rerun = await world.run(["install", "--pick", "tdd"]);
+  expect(rerun.code, rerun.stderr).toBe(0);
+  expect(rerun.stdout).toContain("Removed: grill.");
+  expect(installed(world.project)).toEqual(["tdd"]);
+});
+
+test("--pick names only skills the set holds, and --keep-out with --commit is refused", async () => {
+  const world = setup();
+
+  const unknown = await world.run(["install", "--pick", "nope"]);
+  expect(unknown.code).toBe(1);
+  expect(unknown.stderr).toContain("nope is not a skill in the set");
+
+  const both = await world.run(["install", "--keep-out", "--commit"]);
+  expect(both.code).toBe(1);
+  expect(both.stderr).toContain("--keep-out or --commit");
+  expect(existsSync(join(world.project, "skills-lock.json"))).toBe(false);
+});
+
+test("the terminal picker shows sections and groups as headers, and typing a group's name drops or picks the whole group", async () => {
+  const dropped = await setup().run(["install", "--keep-out"], { typed: "productivity\n" });
+  expect(dropped.code, dropped.stderr).toBe(0);
+  expect(dropped.stdout).toContain(
+    ["Recommended", "  engineering", "  1. [x] tdd", "  productivity", "  2. [x] grill", "Experimental", "  engineering", "  3. [ ] diagnose"].join("\n"),
+  );
+  expect(dropped.stdout).toContain("Type a group's name to pick or drop the whole group.");
+  expect(dropped.stdout).toContain("Installed: tdd.");
+
+  const picked = await setup().run(["install", "--keep-out"], { typed: "engineering\n" });
+  expect(picked.code, picked.stderr).toBe(0);
+  expect(picked.stdout).toContain("Installed: diagnose, grill, tdd.");
+});

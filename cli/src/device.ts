@@ -1,7 +1,8 @@
 // The device file: where this device's clone of the set is. It lives in moro's
 // config folder, outside every repo, so it is never committed.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
+import { type Env, readLocations } from "./locations.js";
 import { UserError } from "./user-error.js";
 
 export interface Device {
@@ -31,4 +32,15 @@ export function writeDevice(file: string, device: Device): void {
     // No file yet: nothing to keep.
   }
   writeFileSync(file, `${JSON.stringify({ ...others, clone: device.clone }, null, 2)}\n`);
+}
+
+/** The clone the device file records, wherever moro runs. */
+export function findClone(io: { env: Env }): string {
+  const clone = readDevice(readLocations(io.env).deviceFile)?.clone;
+  if (!clone || !existsSync(join(clone, ".git"))) {
+    throw new UserError(
+      `The device file's clone${clone ? ` (${clone})` : ""} isn't a git clone.\n\nNext: run ./install.sh in the set's clone.`,
+    );
+  }
+  return clone;
 }

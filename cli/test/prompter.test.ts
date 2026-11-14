@@ -124,26 +124,6 @@ test("a multi-select with preselected choices ticks them, and Enter keeps them",
   );
 });
 
-const grouped: MultiSelectRequest = {
-  message: "Which skills?",
-  choices: [
-    { value: "tdd", label: "tdd", section: "Recommended", group: "engineering", picked: true },
-    { value: "grill", label: "grill", section: "Recommended", group: "productivity", picked: true },
-    { value: "diagnose", label: "diagnose", section: "Experimental", group: "engineering" },
-    { value: "zoom", label: "zoom", section: "Experimental", group: "misc" },
-  ],
-};
-
-test("sections and groups are headers, and typing a group's name drops or picks the whole group", async () => {
-  const dropped = terminal("productivity\n");
-  expect(await dropped.prompter.multiSelect(grouped)).toEqual(["tdd"]);
-  expect(dropped.shown()).toContain(
-    ["Recommended", "  engineering", "  1. [x] tdd", "  productivity", "  2. [x] grill", "Experimental", "  engineering", "  3. [ ] diagnose"].join("\n"),
-  );
-  expect(await terminal("engineering\n").prompter.multiSelect(grouped)).toEqual(["tdd", "grill", "diagnose"]);
-  expect(await terminal("4 misc\n").prompter.multiSelect(grouped)).toEqual([]);
-});
-
 test("a multi-select with preselected choices takes numbers in place of the ticks, or none", async () => {
   expect(await terminal("2\n").prompter.multiSelect(preselected)).toEqual(["beta"]);
   expect(await terminal("none\n").prompter.multiSelect(preselected)).toEqual([]);

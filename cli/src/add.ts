@@ -2,11 +2,11 @@
 // with prompts, or with none under `--yes`.
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, sep } from "node:path";
-import { readDevice } from "./device.js";
+import { findClone } from "./device.js";
 import { type Git, GitError, gitRunner } from "./git.js";
-import { readLocations } from "./locations.js";
 import {
   addSource,
+  forgetSkill,
   hasSkill,
   keyFor,
   MANIFEST_FILE,
@@ -36,6 +36,8 @@ interface AddArgs {
   dependsOn?: string[];
   /** Take every skill in the source that isn't in the set yet. */
   all: boolean;
+  /** What a clash with a set skill of the same name does, instead of asking (or stopping, under `--yes`). */
+  onClash?: "keep" | "replace";
   /** Ask nothing: take each default, and push. */
   yes: boolean;
 }
@@ -73,7 +75,7 @@ interface Taken {
 }
 
 const OPTIONS = ["--yes", "-y", "--all", "--recommended"];
-const USAGE = "moro add <ref> [skill…] [--all] [--group <name>] [--recommended] [--depends-on <key…>] [--yes]";
+const USAGE = "moro add <ref> [skill…] [--all] [--group <name>] [--recommended] [--depends-on <key…>] [--on-clash keep|replace] [--yes]";
 /** The group for a skill whose source gives it no folder above it. */
 const DEFAULT_GROUP = "misc";
 /** The `skills` CLI's skill names: lowercase words joined by single hyphens. */
@@ -100,8 +102,8 @@ export async function add(io: MoroIo, argv: string[]): Promise<number> {
       return 0;
     }
     const keyed = args.yes
-      ? keyWithoutPrompts(setDir, manifest, sourceId, chosen)
-      : await keyWithPrompts(io, git, setDir, manifest, sourceId, chosen);
+      ? await keyWithoutPrompts(git, setDir, manifest, sourceId, chosen, args.onClash)
+      : await keyWithPrompts(io, git, setDir, manifest, sourceId, chosen, args.onClash);
     const plan = await place(io, args, setDir, manifest, source, keyed);
     if (plan.incoming.length === 0) {
       io.stdout.write(`${NOTHING_ADDED}\n\nNext: run \`moro add ${args.input}\` to pick again.\n`);
@@ -122,6 +124,7 @@ function parseArgs(argv: string[]): AddArgs {
   const positional: string[] = [];
   let group: string | undefined;
   let dependsOn: string[] | undefined;
+  let onClash: AddArgs["onClash"];
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
     if (arg === "--group") {
@@ -131,6 +134,10 @@ function parseArgs(argv: string[]): AddArgs {
       dependsOn = [];
       while (i + 1 < argv.length && !argv[i + 1]!.startsWith("-")) dependsOn.push(argv[++i]!);
       if (dependsOn.length === 0) throw new UserError(`--depends-on takes the keys of set skills.\n\nNext: run ${USAGE}`);
+    } else if (arg === "--on-clash") {
+      const value = argv[++i];
+      if (value !== "keep" && value !== "replace") throw new UserError(`--on-clash takes keep or replace.\n\nNext: run ${USAGE}`);
+      onClash = value;
     } else if (arg.startsWith("-")) {
       if (!OPTIONS.includes(arg)) throw new UserError(`Unknown option: ${arg}\n\nNext: run ${USAGE}`);
     } else positional.push(arg);
@@ -147,19 +154,9 @@ function parseArgs(argv: string[]): AddArgs {
     recommended: argv.includes("--recommended"),
     ...(dependsOn ? { dependsOn } : {}),
     all: argv.includes("--all"),
+    ...(onClash ? { onClash } : {}),
     yes,
   };
-}
-
-/** The clone the device file records, wherever moro runs. */
-export function findClone(io: MoroIo): string {
-  const clone = readDevice(readLocations(io.env).deviceFile)?.clone;
-  if (!clone || !existsSync(join(clone, ".git"))) {
-    throw new UserError(
-      `The device file's clone${clone ? ` (${clone})` : ""} isn't a git clone.\n\nNext: run ./install.sh in the set's clone.`,
-    );
-  }
-  return clone;
 }
 
 async function checkoutSource(git: Git, args: AddArgs): Promise<Checkout> {
@@ -221,8 +218,15 @@ async function chooseSkills(
   return listed.filter((skill) => picked.includes(skill.path));
 }
 
-/** Every skill under its rendered name, with any clash stopping the run. */
-function keyWithoutPrompts(setDir: string, manifest: Manifest, sourceId: string, chosen: FoundSkill[]): Plan {
+/** Every skill under its rendered name; a clash with the set is settled by `onClash`, or stops the run. */
+async function keyWithoutPrompts(
+  git: Git,
+  setDir: string,
+  manifest: Manifest,
+  sourceId: string,
+  chosen: FoundSkill[],
+  onClash: AddArgs["onClash"],
+): Promise<Plan> {
   const rules = manifest.sources[sourceId]!.rename;
   const plan: Plan = { sourceId, keyed: [], incoming: [], recommended: false, rules: [], replaced: [] };
   for (const skill of chosen) {
@@ -230,14 +234,26 @@ function keyWithoutPrompts(setDir: string, manifest: Manifest, sourceId: string,
     const earlier = takenInRun(plan.keyed, name);
     if (earlier) throw clash(`${earlier.skill.name} and ${skill.name} would both be ${name} in the set.`);
     const taken = takenInSet(setDir, manifest, plan, name);
-    if (taken) throw clash(`${name} is already in the set (${taken.where}).`);
+    if (taken && onClash === "keep") continue;
+    if (taken && onClash === "replace") await replaceInSet(git, setDir, manifest, plan, name, taken);
+    else if (taken) throw clash(`${name} is already in the set (${taken.where}).`);
     plan.keyed.push({ skill, name });
   }
   return plan;
 }
 
+/** Plans for the set's skill `name` to give way to a newcomer; a local-only skill never does, as nothing committed could restore it. */
+async function replaceInSet(git: Git, setDir: string, manifest: Manifest, plan: Plan, name: string, taken: Taken): Promise<void> {
+  if (taken.where.startsWith(`${LOCAL_ONLY_DIR}/`)) {
+    throw new UserError(`${name} is in ${taken.where}, which is never replaced.\n\n${NOTHING_ADDED}`);
+  }
+  if (taken.folder) await requireCommitted(git, setDir, taken.folder);
+  plan.replaced.push({ name, ...(taken.folder ? { folder: taken.folder } : {}) });
+  forgetSkill(manifest, name, taken.folder);
+}
+
 function clash(message: string): UserError {
-  return new UserError(`${message}\n\n${NOTHING_ADDED} Next: rerun without --yes to resolve the clash.`);
+  return new UserError(`${message}\n\n${NOTHING_ADDED} Next: rerun without --yes to resolve the clash, or pass --on-clash keep or replace.`);
 }
 
 /**
@@ -250,6 +266,7 @@ async function keyWithPrompts(
   manifest: Manifest,
   sourceId: string,
   chosen: FoundSkill[],
+  onClash: AddArgs["onClash"],
 ): Promise<Plan> {
   const { prompter } = io;
   const say = (text: string) => io.stdout.write(`${text}\n`);
@@ -274,9 +291,8 @@ async function keyWithPrompts(
 
     const taken = takenInSet(setDir, manifest, plan, name);
     if (taken) {
-      // A local-only skill is never replaced: nothing of it is committed to restore it from.
       const replaceable = !taken.where.startsWith(`${LOCAL_ONLY_DIR}/`);
-      const answer = await prompter.select({
+      const answer = onClash ? { value: onClash } : await prompter.select({
         message: `${name} is already in the set (${taken.where}). Keep which?`,
         choices: [
           { value: "keep", label: `Keep the set's ${name}, and don't add ${sourceId}'s` },
@@ -288,12 +304,7 @@ async function keyWithPrompts(
       const resolution = "value" in answer ? answer.value : "keep";
       if (resolution === "keep") continue;
       if (resolution === "replace") {
-        if (taken.folder) await requireCommitted(git, setDir, taken.folder);
-        plan.replaced.push({ name, ...(taken.folder ? { folder: taken.folder } : {}) });
-        delete manifest.skills[name];
-        delete manifest.dependsOn[name];
-        manifest.recommended = manifest.recommended.filter((path) => path !== taken.folder);
-        if (manifest.required) manifest.required = manifest.required.filter((path) => path !== taken.folder);
+        await replaceInSet(git, setDir, manifest, plan, name, taken);
       } else {
         const original = name;
         name = await askKey(prompter, say, `Key for ${sourceId}'s ${skill.name} in the set?`, `${sourceId}-${original}`, (key) => {

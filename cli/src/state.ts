@@ -1,12 +1,14 @@
 // Bare `moro`: the state of the clone outside a project, and the one next step.
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { readDevice } from "./device.js";
+import { findClone } from "./device.js";
 import { type Git, gitRunner } from "./git.js";
 import { BUILD_OLDER, SYNC_OLD, UNPUSHED, UP_TO_DATE } from "./hints.js";
 import { projectStatus } from "./install.js";
 import { readLocations } from "./locations.js";
 import type { MoroIo } from "./main.js";
+import { MANIFEST_FILE } from "./manifest.js";
+import { PROJECT_LOCK } from "./project.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const SYNC_STALE_DAYS = 30;
@@ -17,7 +19,7 @@ export async function status(io: MoroIo): Promise<number> {
     return projectStatus(io, git);
   }
   const locations = readLocations(io.env);
-  const clone = readDevice(locations.deviceFile)!.clone;
+  const clone = findClone(io);
   const branch = await git(["rev-parse", "--abbrev-ref", "HEAD"], clone);
   const unpushed = await unpushedCommits(git, clone);
   const lastSync = await git(["log", "-1", "--format=%cI", "--grep=^sync: "], clone);
@@ -39,11 +41,11 @@ async function nextStep(git: Git, clone: string, builtFrom: string, unpushed: bo
   return hasUpstreamSkills(clone) ? SYNC_OLD : UP_TO_DATE;
 }
 
-/** A project is a git repo whose top level holds a `skills-lock.json`. */
+/** A project is a git repo whose top level holds a `skills-lock.json` (`PROJECT_LOCK`). */
 async function inProject(git: Git, cwd: string): Promise<boolean> {
   try {
     const top = await git(["rev-parse", "--show-toplevel"], cwd);
-    return existsSync(join(top, "skills-lock.json"));
+    return existsSync(join(top, PROJECT_LOCK));
   } catch {
     return false;
   }
@@ -74,7 +76,7 @@ async function buildIsOlder(git: Git, clone: string, builtFromFile: string): Pro
 
 function hasUpstreamSkills(clone: string): boolean {
   try {
-    const manifest = JSON.parse(readFileSync(join(clone, "manifest.json"), "utf8")) as { skills?: object };
+    const manifest = JSON.parse(readFileSync(join(clone, MANIFEST_FILE), "utf8")) as { skills?: object };
     return Object.keys(manifest.skills ?? {}).length > 0;
   } catch {
     return false;

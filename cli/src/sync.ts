@@ -3,12 +3,13 @@
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { findClone, offerPush, requireRepoIdentity } from "./add.js";
+import { offerPush, requireRepoIdentity } from "./add.js";
+import { findClone } from "./device.js";
 import { UP_TO_DATE } from "./hints.js";
 import { frontmatterName } from "./frontmatter.js";
 import { type Git, GitError, gitRunner } from "./git.js";
 import type { MoroIo } from "./main.js";
-import { MANIFEST_FILE, type Manifest, readManifest, type RenameRule, type UpstreamSkill, writeManifest } from "./manifest.js";
+import { forgetSkill, MANIFEST_FILE, type Manifest, readManifest, type RenameRule, type UpstreamSkill, writeManifest } from "./manifest.js";
 import { cloneUrl } from "./ref.js";
 import { render, renderName } from "./render.js";
 import { existingSkillFolder } from "./set-layout.js";
@@ -630,11 +631,11 @@ const NOT_PUSHED =
 
 /** Removes an upstream skill's entry; on accept, also every mention of it in the set's graph. */
 function dropSkill(manifest: Manifest, key: string, folder: string, everywhere: boolean): void {
-  delete manifest.skills[key];
-  if (!everywhere) return;
-  manifest.recommended = manifest.recommended.filter((path) => path !== folder);
-  if (manifest.required) manifest.required = manifest.required.filter((path) => path !== folder);
-  delete manifest.dependsOn[key];
+  if (!everywhere) {
+    delete manifest.skills[key];
+    return;
+  }
+  forgetSkill(manifest, key, folder);
   for (const [name, needs] of Object.entries(manifest.dependsOn)) manifest.dependsOn[name] = needs.filter((need) => need !== key);
 }
 

@@ -311,7 +311,7 @@ test("a clash under --yes stops with how to resolve it", async () => {
 
   expect(result.code).toBe(1);
   expect(result.stderr).toContain("tdd is already in the set (skills/eng/tdd).");
-  expect(result.stderr).toContain("Next: rerun without --yes to resolve the clash.");
+  expect(result.stderr).toContain("Next: rerun without --yes to resolve the clash, or pass --on-clash keep or replace.");
 });
 
 test.each([
@@ -409,4 +409,48 @@ test("a new rename rule says which of the source's skills already in the set kee
   expect(result.stdout).toContain(
     "Rename rule on pstack: tdd → pstack-tdd.\nNot re-rendered with the new rule until a sync: how.\n",
   );
+});
+
+test("--on-clash keep answers the clash question: nothing from the source is added, even under --yes", async () => {
+  const world = createWorld({ set: { "skills/eng/tdd/SKILL.md": skillMd("tdd") } });
+  world.source("poteto/pstack", { "skills/tdd/SKILL.md": `${skillMd("tdd")}Theirs.\n` });
+  const clone = world.cloneSet();
+  world.recordClone(clone);
+
+  const result = await world.run(["add", "poteto/pstack", "tdd", "--yes", "--on-clash", "keep"], { cwd: clone });
+
+  expect(result.code, result.stderr).toBe(0);
+  expect(result.stdout).toContain("Nothing was added.");
+  expect(readFileSync(join(clone, "skills/eng/tdd/SKILL.md"), "utf8")).toBe(skillMd("tdd"));
+  expect(subjects(world, clone)).toHaveLength(1);
+});
+
+test("--on-clash replace takes the newcomer in place of the set's skill, under --yes", async () => {
+  const world = createWorld({ set: { "skills/eng/tdd/SKILL.md": skillMd("tdd") } });
+  world.source("poteto/pstack", { "skills/tdd/SKILL.md": `${skillMd("tdd")}Theirs.\n` });
+  const clone = world.cloneSet();
+  world.recordClone(clone);
+
+  const result = await world.run(["add", "poteto/pstack", "tdd", "--yes", "--on-clash", "replace", "--group", "eng"], { cwd: clone });
+
+  expect(result.code, result.stderr).toBe(0);
+  expect(result.stdout).toContain("Replaced the set's tdd.");
+  expect(readFileSync(join(clone, "skills/eng/tdd/SKILL.md"), "utf8")).toBe(`${skillMd("tdd")}Theirs.\n`);
+  expect(readManifest(clone).skills.tdd).toMatchObject({ source: "pstack" });
+  expect(world.git(["status", "--porcelain"], clone)).toBe("");
+});
+
+test("--on-clash replace never replaces a local-only skill, and only keep or replace are taken", async () => {
+  const world = createWorld({ set: { "local-only/work/hello/SKILL.md": skillMd("hello") } });
+  world.source("acme/tools", { "skills/eng/hello/SKILL.md": skillMd("hello") });
+  const clone = world.cloneSet();
+  world.recordClone(clone);
+
+  const replace = await world.run(["add", "acme/tools", "hello", "--yes", "--on-clash", "replace"], { cwd: clone });
+  expect(replace.code).toBe(1);
+  expect(replace.stderr).toContain("hello is in local-only/work/hello, which is never replaced.");
+
+  const bogus = await world.run(["add", "acme/tools", "hello", "--on-clash", "rename"], { cwd: clone });
+  expect(bogus.code).toBe(1);
+  expect(bogus.stderr).toContain("--on-clash takes keep or replace");
 });

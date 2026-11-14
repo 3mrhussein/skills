@@ -178,3 +178,29 @@ test("bare moro in a project that matches the clone says Up to date.", async () 
 
   expect(result.stdout.trimEnd().split("\n").at(-1)).toBe("Up to date.");
 });
+
+test("--use-set-copy replaces the named edited here skill without asking, and leaves the others", async () => {
+  const { world } = await installed();
+  writeFiles(world.project, {
+    ".agents/skills/diagnose/SKILL.md": `${skillMd("diagnose")}\nproject side\n`,
+    ".agents/skills/grill/SKILL.md": `${skillMd("grill")}\nproject side\n`,
+  });
+
+  const result = await world.run(["install", "--pick", "tdd", "diagnose", "grill", "--use-set-copy", "diagnose"]);
+
+  expect(result.code, result.stderr).toBe(0);
+  expect(result.prompts).toEqual([]);
+  expect(copy(world, "diagnose")).toBe(skillMd("diagnose"));
+  expect(copy(world, "grill")).toContain("project side");
+});
+
+test("--use-set-copy on a loose folder installs the set's skill over it", async () => {
+  const { world } = await installed();
+  writeFiles(world.project, { ".agents/skills/ship/SKILL.md": "stray ship\n" });
+
+  const result = await world.run(["install", "--pick", "tdd", "diagnose", "grill", "ship", "--use-set-copy", "ship"]);
+
+  expect(result.code, result.stderr).toBe(0);
+  expect(result.prompts).toEqual([]);
+  expect(copy(world, "ship")).toBe(skillMd("ship"));
+});

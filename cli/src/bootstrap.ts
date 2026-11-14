@@ -12,6 +12,7 @@ import { type Locations, readLocations } from "./locations.js";
 import type { MoroIo } from "./main.js";
 import { askYesNo } from "./prompter.js";
 import { SKILLS_DIR, skillsWithGroups, skillFolder } from "./set-layout.js";
+import { isLink } from "./project.js";
 import { runSkills } from "./skills-cli.js";
 import { UserError } from "./user-error.js";
 
@@ -28,7 +29,7 @@ export async function bootstrap(io: MoroIo, argv: string[]): Promise<number> {
   }
   const locations = readLocations(io.env);
   const say = (text: string) => io.stdout.write(`${text}\n`);
-  const { clone, group } = await findClone(io);
+  const { clone, group } = await cloneHere(io);
   requireNewEnoughMoro(clone);
 
   // Explore.
@@ -124,16 +125,8 @@ async function snapshot(locations: Locations, paths: string[]): Promise<string> 
   return archive;
 }
 
-function isLink(path: string): boolean {
-  try {
-    return lstatSync(path).isSymbolicLink();
-  } catch {
-    return false;
-  }
-}
-
 /** The clone of the set that `io.cwd` is in, and the group holding `setup-moro-skills`; a stop saying to run it from the clone otherwise. */
-async function findClone(io: MoroIo): Promise<{ clone: string; group: string }> {
+async function cloneHere(io: MoroIo): Promise<{ clone: string; group: string }> {
   const root = await gitRunner(io.env)(["rev-parse", "--show-toplevel"], io.cwd).catch(() => undefined);
   const group = root === undefined ? undefined : skillsWithGroups(root).find(({ name }) => name === SKILL)?.group;
   if (root === undefined || group === undefined) {

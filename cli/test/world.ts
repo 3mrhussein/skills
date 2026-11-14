@@ -4,10 +4,11 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { PassThrough } from "node:stream";
 import { onTestFinished } from "vitest";
 import { main } from "../src/main.js";
 import type { Env } from "../src/locations.js";
-import { type Answer, type MultiSelectRequest, type Prompter, recommendedFirst, type SelectRequest } from "../src/prompter.js";
+import { type Answer, createTerminalPrompter, type MultiSelectRequest, type Prompter, recommendedFirst, type SelectRequest } from "../src/prompter.js";
 import { runSkills, type SkillsResult } from "../src/skills-cli.js";
 
 /**
@@ -63,7 +64,11 @@ export interface World {
   set: Repo;
   /** Creates a source repo, e.g. `source("mattpocock/skills", files)`. */
   source(name: string, files: Files): Repo;
-  run(argv: string[], options?: { answers?: ScriptedAnswer[]; cwd?: string }): Promise<RunResult>;
+  /**
+   * Runs `moro`. `answers` script the prompts; `typed` instead feeds the real terminal prompter
+   * those input lines and puts what it shows into `stdout`.
+   */
+  run(argv: string[], options?: { answers?: ScriptedAnswer[]; typed?: string; cwd?: string }): Promise<RunResult>;
   /** Clones the set, once; returns the clone's path. */
   cloneSet(options?: { identity?: boolean }): string;
   /** Runs git in the world; returns trimmed stdout. */
@@ -116,8 +121,6 @@ export function createWorld(options: { set?: Files } = {}): World {
     PATH: process.env.PATH,
     TMPDIR: process.env.TMPDIR,
     HOME: home,
-    MORO_SET_REMOTE: `${HOST}3mrhussein/skills.git`,
-    MORO_NPM_REGISTRY: "https://registry.moro.test/",
     GIT_CONFIG_NOSYSTEM: "1",
     GIT_TERMINAL_PROMPT: "0",
     DO_NOT_TRACK: "1",
@@ -189,10 +192,10 @@ export function createWorld(options: { set?: Files } = {}): World {
       }
       return clone;
     },
-    async run(argv, { answers = [], cwd = project } = {}) {
+    async run(argv, { answers = [], typed, cwd = project } = {}) {
       let stdout = "";
       let stderr = "";
-      const prompter = scriptedPrompter(answers);
+      const prompter = typed === undefined ? scriptedPrompter(answers) : terminalPrompter(typed, (text) => void (stdout += text));
       const code = await main({
         argv,
         env,
@@ -245,6 +248,15 @@ export function readManifest(clone: string): any {
 /** A `SKILL.md` with frontmatter. */
 export function skillMd(name: string): string {
   return `---\nname: ${name}\ndescription: Use for ${name}.\n---\n\nThe ${name} skill.\n`;
+}
+
+/** The real terminal prompter, reading `typed` as the owner's input and writing what it shows to `show`. */
+function terminalPrompter(typed: string, show: (text: string) => void): Prompter & { asked: Prompt[]; remaining(): number } {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  output.on("data", (chunk: Buffer) => show(chunk.toString()));
+  input.end(typed);
+  return { ...createTerminalPrompter({ input, output }), asked: [], remaining: () => 0 };
 }
 
 /** Answers each prompt from the script, in order, and fails on anything unexpected. */

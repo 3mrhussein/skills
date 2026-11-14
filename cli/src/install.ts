@@ -1,84 +1,96 @@
 // `moro install`: the set's skills, offered in one multi-select and copied into
 // the project from the clone. Nothing is recorded in the project beyond what the
 // `skills` CLI writes (its `skills-lock.json` and the skill folders).
-//
-// Later tickets extend `Offer` (required and dependency locks, local-only skills,
-// divergence labels) and `offerChoices`; `plan` and `apply` stay as they are.
-import { appendFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { readDevice } from "./device.js";
-import { cloneCopy, diffFolders, diverge, projectCopy, needsRerun, reportLines, type Divergence } from "./divergence.js";
+import { findClone } from "./device.js";
+import { cloneCopy, diffFolders, diverge, projectCopy, needsRerun, reportLines, type Divergence, type Label, type SetSkill } from "./divergence.js";
 import { gitRunner } from "./git.js";
 import { RERUN_SETUP, UP_TO_DATE } from "./hints.js";
-import { readLocations } from "./locations.js";
 import type { MoroIo } from "./main.js";
 import { readManifest } from "./manifest.js";
+import { PROJECT_LOCK, readProjectLock, skillFolders } from "./project.js";
 import { askYesNo, type MultiSelectRequest } from "./prompter.js";
 import { localOnlySkills, LOCAL_ONLY_DIR, skillFolder, skillsWithGroups } from "./set-layout.js";
 import { runSkills } from "./skills-cli.js";
 import { UserError } from "./user-error.js";
 import { MORO_VERSION } from "./version.js";
 
-const USAGE = "moro install [--yes]";
-const LOCK_FILE = "skills-lock.json";
+const USAGE = "moro install [--yes] [--pick <skill…>] [--keep-out | --commit] [--use-set-copy <skill…>]";
 
-/** One skill the project can take. */
-interface Offer {
-  name: string;
-  group: string;
+/** One skill the project can take; a local-only one is copied from the clone's gitignored `local-only/` and always kept out of the project's git. */
+interface Offer extends SetSkill {
   recommended: boolean;
-  /** From the clone's gitignored `local-only/`: copied from there and always kept out of the project's git. */
-  localOnly?: boolean;
+}
+
+/** What the command line answers, so no prompt is needed for it. */
+interface InstallArgs {
+  /** Take each recommended answer, and push nothing: ask nothing. */
+  yes: boolean;
+  /** The skills the project should have, instead of the picker. */
+  pick?: string[];
+  /** Keep a first install's skills out of git (true) or commit them (false), instead of asking. */
+  keepOut?: boolean;
+  /** The edited here or loose skills that the set's copy replaces, instead of asking. */
+  useSetCopy?: string[];
 }
 
 export async function install(io: MoroIo, argv: string[]): Promise<number> {
-  const yes = parseArgs(argv);
+  const args = parseArgs(argv);
+  const { yes } = args;
   const git = gitRunner(io.env);
   const top = await projectTop(git, io.cwd);
-  const clone = readDevice(readLocations(io.env).deviceFile)!.clone;
+  const clone = findClone(io);
 
   const offers = readOffers(clone);
   if (offers.length === 0) {
     throw new UserError(`The set at ${clone} has no skills to install.\n\nNext: add some with \`moro add\`.`);
+  }
+  for (const name of [...(args.pick ?? []), ...(args.useSetCopy ?? [])]) {
+    if (!offers.some((offer) => offer.name === name) && !installedSkills(top).includes(name)) {
+      throw new UserError(`${name} is not a skill in the set.\n\nNext: pick from the skills \`moro install\` offers.`);
+    }
   }
   const current = installedSkills(top);
   const firstInstall = current.length === 0;
 
   const divergence = diverge(top, clone, offers, current);
   writeReport(io, divergence);
-  const hasLabel = (name: string, label: "loose" | "edited here" | "set changed") => !!divergence.labels.get(name)?.includes(label);
+  const hasLabel = (name: string, label: Label) => !!divergence.labels.get(name)?.includes(label);
 
   const rules = readRules(clone, offers);
   const start = offers
     .filter((offer) => (firstInstall ? offer.recommended : current.includes(offer.name)))
-    .map((offer) => offer.name)
-    .filter((name) => !(yes && hasLabel(name, "loose")));
+    .map((offer) => offer.name);
   // `--yes` lets go of what the set no longer holds; the picker keeps it ticked until the owner unticks it.
-  const chosen = yes
-    ? start
-    : await io.prompter.multiSelect(offerChoices(offers, new Set([...start, ...divergence.gone]), lockedSkills(rules, start), divergence));
+  const chosen =
+    args.pick ??
+    (yes
+      ? start
+      : await io.prompter.multiSelect(offerChoices(offers, new Set([...start, ...divergence.gone]), lockedSkills(rules, start), divergence)));
   const { picks, reasons } = withLocked(rules, chosen);
 
   const planned = plan(offers, current, picks, divergence.gone);
   const remove = planned.remove;
-  const add = planned.add.filter((name) => !(yes && hasLabel(name, "loose")));
+  const add = [...planned.add];
   // Set changed skills come again from the clone; edited here and loose ones only when the owner agrees.
   const update = picks.filter((name) => current.includes(name) && hasLabel(name, "set changed") && !hasLabel(name, "edited here"));
-  if (!yes) {
-    for (const name of picks.filter((pick) => hasLabel(pick, "edited here") || hasLabel(pick, "loose"))) {
-      if (await useSetCopy(io, top, clone, offers.find((offer) => offer.name === name)!)) {
-        if (hasLabel(name, "edited here")) update.push(name);
-      } else if (hasLabel(name, "loose")) add.splice(add.indexOf(name), 1);
-    }
+  for (const name of picks.filter((pick) => hasLabel(pick, "edited here") || hasLabel(pick, "loose"))) {
+    const offer = offers.find((candidate) => candidate.name === name)!;
+    // Without an answer, `--yes` never overwrites the owner's copy.
+    const useSet = args.useSetCopy ? args.useSetCopy.includes(name) : !yes && (await askUseSetCopy(io, top, clone, offer));
+    if (useSet) {
+      if (hasLabel(name, "edited here")) update.push(name);
+    } else if (hasLabel(name, "loose")) add.splice(add.indexOf(name), 1);
   }
 
-  let keepOut = false;
-  if (firstInstall && add.length > 0) {
+  let keepOut = args.keepOut ?? false;
+  if (firstInstall && add.length > 0 && args.keepOut === undefined) {
     keepOut = yes || (await askKeepOut(io));
   }
   const excludeFile = (await git(["rev-parse", "--path-format=absolute", "--git-path", "info/exclude"], top)).trim();
   // A project that kept its skills out of git keeps the new ones out too.
-  keepOut ||= !firstInstall && existsSync(excludeFile) && readFileSync(excludeFile, "utf8").split("\n").includes(`/${LOCK_FILE}`);
+  keepOut ||= !firstInstall && existsSync(excludeFile) && readFileSync(excludeFile, "utf8").split("\n").includes(`/${PROJECT_LOCK}`);
 
   const localAdds = add.filter((name) => offers.find((offer) => offer.name === name)?.localOnly);
   await apply(io, { clone, top, add: [...add, ...update], remove, offers });
@@ -91,7 +103,7 @@ export async function install(io: MoroIo, argv: string[]): Promise<number> {
 /** Bare `moro` in a project: the divergence report and the one next step. */
 export async function projectStatus(io: MoroIo, git: ReturnType<typeof gitRunner>): Promise<number> {
   const top = await projectTop(git, io.cwd);
-  const clone = readDevice(readLocations(io.env).deviceFile)!.clone;
+  const clone = findClone(io);
   const divergence = diverge(top, clone, readOffers(clone), installedSkills(top));
   writeReport(io, divergence);
   io.stdout.write(`${needsRerun(divergence) ? RERUN_SETUP : UP_TO_DATE}\n`);
@@ -104,19 +116,36 @@ function writeReport(io: MoroIo, divergence: Divergence): void {
 }
 
 /** Shows how the project's copy differs from the clone's, then asks whether the set's copy replaces it. */
-async function useSetCopy(io: MoroIo, top: string, clone: string, offer: Offer): Promise<boolean> {
+async function askUseSetCopy(io: MoroIo, top: string, clone: string, offer: Offer): Promise<boolean> {
   const mine = projectCopy(top, offer.name)!;
   io.stdout.write(`${offer.name}: the project's copy differs from the set's.\n${diffFolders(mine, cloneCopy(clone, offer))}\n`);
   return askYesNo(io.prompter, `Use the set's copy of ${offer.name}?`, "no");
 }
 
-function parseArgs(argv: string[]): boolean {
-  let yes = false;
-  for (const arg of argv) {
-    if (arg === "--yes" || arg === "-y") yes = true;
-    else throw new UserError(`Unknown option: ${arg}\n\nNext: run \`${USAGE}\``);
+function parseArgs(argv: string[]): InstallArgs {
+  const args: InstallArgs = { yes: false };
+  const names = (flag: string, from: number): string[] => {
+    const found: string[] = [];
+    for (let i = from; i < argv.length && !argv[i]!.startsWith("-"); i++) found.push(argv[i]!);
+    if (found.length === 0) throw new UserError(`${flag} takes skill names.\n\nNext: run \`${USAGE}\``);
+    return found;
+  };
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]!;
+    if (arg === "--yes" || arg === "-y") args.yes = true;
+    else if (arg === "--keep-out" || arg === "--commit") {
+      if (args.keepOut !== undefined && args.keepOut !== (arg === "--keep-out")) {
+        throw new UserError(`Give --keep-out or --commit, not both.\n\nNext: run \`${USAGE}\``);
+      }
+      args.keepOut = arg === "--keep-out";
+    } else if (arg === "--pick" || arg === "--use-set-copy") {
+      const found = names(arg, i + 1);
+      i += found.length;
+      if (arg === "--pick") args.pick = found;
+      else args.useSetCopy = found;
+    } else throw new UserError(`Unknown option: ${arg}\n\nNext: run \`${USAGE}\``);
   }
-  return yes;
+  return args;
 }
 
 /** The project's git top level, from any folder inside it. */
@@ -156,7 +185,7 @@ interface Rules {
 function readRules(clone: string, offers: Offer[]): Rules {
   const manifest = readManifest(clone, MORO_VERSION);
   const held = new Set(offers.map((offer) => offer.name));
-  const heldPaths = new Set(offers.map((offer) => `skills/${offer.group}/${offer.name}`));
+  const heldPaths = new Set(offers.filter((offer) => !offer.localOnly).map((offer) => skillFolder(offer.name, offer.group)));
   const wrong = (entry: string, where: string): never => {
     throw new UserError(
       `manifest.json names ${entry} in ${where}, and the set doesn't hold it.\n\nNext: fix that entry in manifest.json, then run \`${USAGE}\` again.`,
@@ -164,7 +193,7 @@ function readRules(clone: string, offers: Offer[]): Rules {
   };
   const required: string[] = [];
   for (const path of manifest.required ?? []) {
-    if (path.startsWith("local-only/")) continue;
+    if (path.startsWith(`${LOCAL_ONLY_DIR}/`)) continue;
     if (!heldPaths.has(path)) wrong(path, "required");
     required.push(basename(path));
   }
@@ -198,12 +227,7 @@ function withLocked(rules: Rules, chosen: string[]): { picks: string[]; reasons:
 
 /** The skills in the project's `skills-lock.json`. */
 function installedSkills(top: string): string[] {
-  try {
-    const lock = JSON.parse(readFileSync(join(top, LOCK_FILE), "utf8")) as { skills?: Record<string, unknown> };
-    return Object.keys(lock.skills ?? {}).sort();
-  } catch {
-    return [];
-  }
+  return Object.keys(readProjectLock(top)).sort();
 }
 
 /** Recommended skills first, then experimental ones, each under its group; `ticked` start picked. */
@@ -276,7 +300,7 @@ async function apply(io: MoroIo, work: { clone: string; top: string; add: string
 /** Appends the lock and each skill's folders (one per agent folder that holds it) to `.git/info/exclude`. */
 function excludeFromGit(top: string, excludeFile: string, names: string[], withLock: boolean): void {
   const existing = existsSync(excludeFile) ? readFileSync(excludeFile, "utf8").split("\n") : [];
-  const wanted = [...(withLock ? [`/${LOCK_FILE}`] : []), ...names.flatMap((name) => skillFolders(top, name))];
+  const wanted = [...(withLock ? [`/${PROJECT_LOCK}`] : []), ...names.flatMap((name) => skillFolders(top, name).map((path) => `/${path}`))];
   const lines = wanted.filter((line) => !existing.includes(line));
   if (lines.length === 0) return;
   mkdirSync(dirname(excludeFile), { recursive: true });
@@ -284,26 +308,9 @@ function excludeFromGit(top: string, excludeFile: string, names: string[], withL
   appendFileSync(excludeFile, `${lead}${lines.join("\n")}\n`);
 }
 
-/** The project's folders holding this skill: `<agent folder>/skills/<name>`, as the `skills` CLI lays them out. */
-function skillFolders(top: string, name: string): string[] {
-  return readdirSync(top)
-    .filter((entry) => entry !== ".git" && entry !== "node_modules")
-    .map((entry) => `${entry}/skills/${name}`)
-    .filter((path) => existsSync(join(top, path)) || isLink(join(top, path)))
-    .map((path) => `/${path}`);
-}
-
-function isLink(path: string): boolean {
-  try {
-    return lstatSync(path).isSymbolicLink();
-  } catch {
-    return false;
-  }
-}
-
 function summary(io: MoroIo, result: { add: string[]; update: string[]; remove: string[]; keepOut: boolean; reasons: Map<string, string> }): number {
   if (result.add.length === 0 && result.update.length === 0 && result.remove.length === 0) {
-    io.stdout.write("Up to date.\n");
+    io.stdout.write(`${UP_TO_DATE}\n`);
     return 0;
   }
   if (result.add.length > 0) io.stdout.write(`Installed: ${result.add.join(", ")}.\n`);
@@ -314,7 +321,7 @@ function summary(io: MoroIo, result: { add: string[]; update: string[]; remove: 
   if (result.remove.length > 0) io.stdout.write(`Removed: ${result.remove.join(", ")}.\n`);
   const next = result.keepOut
     ? "restart your agent in this project; the skills are kept out of git."
-    : `restart your agent in this project, and commit ${LOCK_FILE} and the new skill folders.`;
+    : `restart your agent in this project, and commit ${PROJECT_LOCK} and the new skill folders.`;
   io.stdout.write(`\nNext: ${next} Run \`moro install\` again to change the picks.\n`);
   return 0;
 }

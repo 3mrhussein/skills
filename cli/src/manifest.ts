@@ -71,3 +71,11 @@ export function hasSkill(manifest: Manifest, name: string): boolean {
 export function keyFor(manifest: Manifest, sourceId: string, path: string): string | undefined {
   return Object.entries(manifest.skills).find(([, skill]) => skill.source === sourceId && skill.path === path)?.[0];
 }
+
+/** Forgets a skill at `folder`: its manifest entry, its needs and its place in the recommended and required lists. */
+export function forgetSkill(manifest: Manifest, key: string, folder: string | undefined): void {
+  delete manifest.skills[key];
+  delete manifest.dependsOn[key];
+  manifest.recommended = manifest.recommended.filter((path) => path !== folder);
+  if (manifest.required) manifest.required = manifest.required.filter((path) => path !== folder);
+}

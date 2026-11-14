@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
+import { agentFolders, readProjectLock } from "./project.js";
 import { LOCAL_ONLY_DIR, skillFolder } from "./set-layout.js";
 
 export const LABELS = ["set changed", "edited here", "gone from the set", "not installed", "loose"] as const;
@@ -23,11 +24,6 @@ export interface Divergence {
   gone: string[];
 }
 
-interface LockEntry {
-  source?: string;
-  computedHash?: string;
-}
-
 /** The clone's folder for a skill. */
 export function cloneCopy(clone: string, skill: SetSkill): string {
   return skill.localOnly ? join(clone, LOCAL_ONLY_DIR, skill.group, skill.name) : join(clone, skillFolder(skill.name, skill.group));
@@ -35,7 +31,7 @@ export function cloneCopy(clone: string, skill: SetSkill): string {
 
 /** Compares each skill with the project lock. `current` are the names the lock records. */
 export function diverge(top: string, clone: string, skills: SetSkill[], current: string[]): Divergence {
-  const lock = readLockEntries(top);
+  const lock = readProjectLock(top);
   const labels = new Map<string, Label[]>();
   const add = (name: string, label: Label) => labels.set(name, [...(labels.get(name) ?? []), label]);
 
@@ -59,9 +55,9 @@ export function diverge(top: string, clone: string, skills: SetSkill[], current:
 
 /** The project's copy of a skill: `<agent folder>/skills/<name>`, `.agents` first. */
 export function projectCopy(top: string, name: string): string | undefined {
-  const agentFolders = readdirSync(top).filter((entry) => entry !== ".git" && entry !== "node_modules");
-  agentFolders.sort((a, b) => Number(b === ".agents") - Number(a === ".agents"));
-  return agentFolders.map((entry) => join(top, entry, "skills", name)).find((path) => existsSync(path) && statSync(path).isDirectory());
+  return agentFolders(top)
+    .map((entry) => join(top, entry, "skills", name))
+    .find((path) => existsSync(path) && statSync(path).isDirectory());
 }
 
 /** The report's lines, one per label, in the ticket's order; empty when nothing diverges. */
@@ -104,14 +100,6 @@ function hashFolder(folder: string): string {
     hash.update(file.content);
   }
   return hash.digest("hex");
-}
-
-function readLockEntries(top: string): Record<string, LockEntry> {
-  try {
-    return (JSON.parse(readFileSync(join(top, "skills-lock.json"), "utf8")) as { skills?: Record<string, LockEntry> }).skills ?? {};
-  } catch {
-    return {};
-  }
 }
 
 /** True when a lock entry's source is the clone or a folder inside it. */
