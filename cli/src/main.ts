@@ -2,6 +2,7 @@ import { add } from "./add.js";
 import type { Prompter } from "./prompter.js";
 import { type Env, readLocations } from "./locations.js";
 import { bootstrap } from "./bootstrap.js";
+import { install } from "./install.js";
 import { readDevice } from "./device.js";
 import { sync } from "./sync.js";
 import { UserError } from "./user-error.js";
@@ -40,6 +41,9 @@ async function run(io: MoroIo): Promise<number> {
     case "add":
       requireDevice(io);
       return add(io, args);
+    case "install":
+      requireDevice(io);
+      return install(io, args);
     case "sync":
       requireDevice(io);
       return sync(io, args);

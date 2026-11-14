@@ -1,0 +1,124 @@
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { expect, test } from "vitest";
+import { createWorld, skillMd, type World } from "./world.js";
+
+const SET = {
+  "skills/engineering/tdd/SKILL.md": skillMd("tdd"),
+  "skills/engineering/diagnose/SKILL.md": skillMd("diagnose"),
+  "skills/productivity/grill/SKILL.md": skillMd("grill"),
+  "skills/misc/zoom/SKILL.md": skillMd("zoom"),
+  "manifest.json": JSON.stringify({
+    moro: "0.2.0",
+    sources: {},
+    skills: {},
+    recommended: ["skills/engineering/tdd", "skills/productivity/grill"],
+    dependsOn: {},
+  }),
+};
+
+function setup(): World {
+  const world = createWorld({ set: SET });
+  world.recordClone(world.cloneSet());
+  return world;
+}
+
+/** The skills the project's `skills-lock.json` lists. */
+const installed = (project: string) =>
+  Object.keys(JSON.parse(readFileSync(join(project, "skills-lock.json"), "utf8")).skills).sort();
+
+const excluded = (project: string) => readFileSync(join(project, ".git/info/exclude"), "utf8");
+
+test("stops outside a git repo", async () => {
+  const world = setup();
+
+  const result = await world.run(["install"], { cwd: world.root });
+
+  expect(result.code).toBe(1);
+  expect(result.stderr).toContain("git");
+});
+
+test("first install offers recommended skills ticked, then experimental ones, under group headers", async () => {
+  const world = setup();
+
+  const result = await world.run(["install"], { answers: [["tdd", "grill"], "exclude"] });
+
+  expect(result.code, result.stderr).toBe(0);
+  const request = result.prompts[0] as any;
+  expect(request.choices.map((c: any) => [c.value, c.section, c.group, !!c.picked])).toEqual([
+    ["tdd", "Recommended", "engineering", true],
+    ["grill", "Recommended", "productivity", true],
+    ["diagnose", "Experimental", "engineering", false],
+    ["zoom", "Experimental", "misc", false],
+  ]);
+  expect(installed(world.project)).toEqual(["grill", "tdd"]);
+  expect(result.stdout).toContain("Installed: grill, tdd.");
+});
+
+test("first install asks to commit or keep out; keeping out excludes the skills and the lock", async () => {
+  const world = setup();
+
+  const result = await world.run(["install"], { answers: [["tdd"], "exclude"] });
+
+  const question = result.prompts[1] as any;
+  expect(question.message).toBe("Commit these skills to this project, or keep them out of git?");
+  expect(question.recommended).toBe("exclude");
+  expect(world.git(["status", "--porcelain"], world.project)).toBe("");
+  expect(excluded(world.project)).toContain("/skills-lock.json");
+  expect(excluded(world.project)).toContain("/.claude/skills/tdd");
+});
+
+test("choosing to commit leaves the skills visible to git", async () => {
+  const world = setup();
+
+  await world.run(["install"], { answers: [["tdd"], "commit"] });
+
+  expect(world.git(["status", "--porcelain"], world.project)).toContain("skills-lock.json");
+});
+
+test("a rerun ticks the installed skills, adds new picks, removes unticked ones and doesn't ask again", async () => {
+  const world = setup();
+  await world.run(["install"], { answers: [["tdd", "grill"], "exclude"] });
+
+  const result = await world.run(["install"], { answers: [["tdd", "zoom"]] });
+
+  const request = result.prompts[0] as any;
+  expect(request.choices.filter((c: any) => c.picked).map((c: any) => c.value)).toEqual(["tdd", "grill"]);
+  expect(result.prompts).toHaveLength(1);
+  expect(installed(world.project)).toEqual(["tdd", "zoom"]);
+  expect(existsSync(join(world.project, ".claude/skills/grill"))).toBe(false);
+  expect(result.stdout).toContain("Installed: zoom.");
+  expect(result.stdout).toContain("Removed: grill.");
+  expect(excluded(world.project)).toContain("/.claude/skills/zoom");
+});
+
+test("a current project ends Up to date.", async () => {
+  const world = setup();
+  await world.run(["install"], { answers: [["tdd"], "exclude"] });
+
+  const result = await world.run(["install"], { answers: [["tdd"]] });
+
+  expect(result.stdout).toContain("Up to date.");
+});
+
+test("--yes takes the recommended skills on a first install and keeps them out of git", async () => {
+  const world = setup();
+
+  const result = await world.run(["install", "--yes"]);
+
+  expect(result.code, result.stderr).toBe(0);
+  expect(installed(world.project)).toEqual(["grill", "tdd"]);
+  expect(world.git(["status", "--porcelain"], world.project)).toBe("");
+  expect((await world.run(["install", "--yes"])).stdout).toContain("Up to date.");
+});
+
+test("runs at the git top level when started in a subfolder", async () => {
+  const world = setup();
+  const sub = join(world.project, "packages/a");
+  mkdirSync(sub, { recursive: true });
+
+  const result = await world.run(["install", "--yes"], { cwd: sub });
+
+  expect(result.code, result.stderr).toBe(0);
+  expect(existsSync(join(world.project, "skills-lock.json"))).toBe(true);
+});

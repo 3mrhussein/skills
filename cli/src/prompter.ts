@@ -23,8 +23,10 @@ export interface MultiSelectRequest {
   /**
    * A picked choice starts ticked, and Enter keeps the ticked ones; otherwise nothing starts picked.
    * A disabled choice is shown greyed out, with the reason, and can't be picked.
+   * Choices that share a `section` or `group` are listed under a header; list them together.
+   * Typing a group's name picks the whole group, or drops it when it is already fully picked.
    */
-  choices: (Choice & { disabled?: string; picked?: boolean })[];
+  choices: (Choice & { disabled?: string; picked?: boolean; section?: string; group?: string })[];
 }
 
 export interface Prompter {
@@ -78,7 +80,18 @@ export function createTerminalPrompter(streams: {
       const tick = (choice: { picked?: boolean }) => (ticked.length === 0 ? "" : choice.picked ? "[x] " : "[ ] ");
       out.write(`\n${request.message}\n`);
       let number = 0;
+      let section: string | undefined;
+      let group: string | undefined;
       for (const choice of request.choices) {
+        if (choice.section !== undefined && choice.section !== section) {
+          section = choice.section;
+          group = undefined;
+          out.write(`${section}\n`);
+        }
+        if (choice.group !== undefined && choice.group !== group) {
+          group = choice.group;
+          out.write(`  ${group}\n`);
+        }
         if (choice.disabled) out.write(`${grey(`  -  ${choice.label} (${choice.disabled})`)}\n`);
         else out.write(`  ${++number}. ${tick(choice)}${choice.label}\n`);
       }
@@ -87,13 +100,15 @@ export function createTerminalPrompter(streams: {
           ? { help: "or all; Enter takes none", retry: "or all, or press Enter for none" }
           : { help: "all or none; Enter keeps the ticked ones", retry: "all or none, or press Enter to keep the ticked ones" };
       out.write(`  Type the numbers to take (like 1 3 5-7), ${hint.help}.\n`);
+      const groups = [...new Set(pickable.flatMap((choice) => (choice.group === undefined ? [] : [choice.group])))];
+      if (groups.length > 0) out.write("  Type a group's name to pick or drop the whole group.\n");
 
       for (;;) {
         out.write("> ");
         const text = (await nextLine()).trim();
         if (text === "") return ticked.map((choice) => choice.value);
         if (text === "none") return [];
-        const picked = parsePicks(text, pickable.length);
+        const picked = parsePicks(text, pickable.length, groups, pickable, ticked);
         if (picked) return pickable.filter((_, index) => picked.has(index + 1)).map((choice) => choice.value);
         out.write(`Pick numbers from 1 to ${pickable.length}, ${hint.retry}.\n`);
       }
@@ -125,13 +140,37 @@ export function recommendedFirst(request: SelectRequest): Choice[] {
 }
 
 /** The numbers in `1 3 5-7` or `all`, or undefined when the text isn't that or names a number outside 1..count. */
-function parsePicks(text: string, count: number): Set<number> | undefined {
+function parsePicks(
+  text: string,
+  count: number,
+  groups: string[],
+  pickable: { value: string; group?: string }[],
+  ticked: { value: string }[],
+): Set<number> | undefined {
   const picked = new Set<number>();
   if (text === "all") {
     for (let number = 1; number <= count; number++) picked.add(number);
     return picked;
   }
-  for (const part of text.split(/[\s,]+/).filter(Boolean)) {
+  const parts = text.split(/[\s,]+/).filter(Boolean);
+  const named = parts.filter((part) => groups.includes(part));
+  const numbers = parts.filter((part) => !groups.includes(part));
+  // Group names toggle on top of the numbers typed, or on the ticked ones when only groups are typed.
+  if (named.length > 0) {
+    const base = numbers.length > 0 ? parsePicks(numbers.join(" "), count, [], pickable, ticked) : undefined;
+    if (numbers.length > 0 && !base) return undefined;
+    const set = base ?? new Set(pickable.flatMap((choice, index) => (ticked.some((t) => t.value === choice.value) ? [index + 1] : [])));
+    for (const name of named) {
+      const members = pickable.flatMap((choice, index) => (choice.group === name ? [index + 1] : []));
+      const all = members.every((member) => set.has(member));
+      for (const member of members) {
+        if (all) set.delete(member);
+        else set.add(member);
+      }
+    }
+    return set;
+  }
+  for (const part of numbers) {
     const range = /^(\d+)(?:-(\d+))?$/.exec(part);
     if (!range) return undefined;
     const first = Number(range[1]);
