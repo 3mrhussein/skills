@@ -12,7 +12,7 @@ import { readLocations } from "./locations.js";
 import type { MoroIo } from "./main.js";
 import { readManifest } from "./manifest.js";
 import type { MultiSelectRequest } from "./prompter.js";
-import { skillsWithGroups } from "./set-layout.js";
+import { localOnlySkills, LOCAL_ONLY_DIR, skillFolder, skillsWithGroups } from "./set-layout.js";
 import { runSkills } from "./skills-cli.js";
 import { UserError } from "./user-error.js";
 import { MORO_VERSION } from "./version.js";
@@ -25,6 +25,8 @@ interface Offer {
   name: string;
   group: string;
   recommended: boolean;
+  /** From the clone's gitignored `local-only/`: copied from there and always kept out of the project's git. */
+  localOnly?: boolean;
 }
 
 export async function install(io: MoroIo, argv: string[]): Promise<number> {
@@ -54,8 +56,10 @@ export async function install(io: MoroIo, argv: string[]): Promise<number> {
   // A project that kept its skills out of git keeps the new ones out too.
   keepOut ||= !firstInstall && existsSync(excludeFile) && readFileSync(excludeFile, "utf8").split("\n").includes(`/${LOCK_FILE}`);
 
-  await apply(io, { clone, top, add, remove });
-  if (keepOut && add.length > 0) excludeFromGit(top, excludeFile, add);
+  const localAdds = add.filter((name) => offers.find((offer) => offer.name === name)?.localOnly);
+  await apply(io, { clone, top, add, remove, offers });
+  if (keepOut && add.length > 0) excludeFromGit(top, excludeFile, add, true);
+  else if (localAdds.length > 0) excludeFromGit(top, excludeFile, localAdds, false);
 
   return summary(io, { add, remove, keepOut });
 }
@@ -83,7 +87,17 @@ async function projectTop(git: ReturnType<typeof gitRunner>, cwd: string): Promi
 function readOffers(clone: string): Offer[] {
   const manifest = readManifest(clone, MORO_VERSION);
   const recommended = new Set(manifest.recommended.map((path) => basename(path)));
-  return skillsWithGroups(clone).map(({ name, group }) => ({ name, group, recommended: recommended.has(name) }));
+  const shared = skillsWithGroups(clone).map(({ name, group }) => ({ name, group, recommended: recommended.has(name) }));
+  const local = localOnlySkills(clone).map(({ name, group }) => ({ name, group, recommended: true, localOnly: true }));
+  for (const offer of local) {
+    const twin = shared.find((other) => other.name === offer.name);
+    if (twin) {
+      throw new UserError(
+        `${offer.name} is in both ${skillFolder(offer.name, twin.group)} and ${join(LOCAL_ONLY_DIR, offer.group, offer.name)}, and a project installs both into one folder.\n\nNext: rename or remove one of them in the clone, then run \`moro install\` again.`,
+      );
+    }
+  }
+  return [...shared, ...local];
 }
 
 /** The skills in the project's `skills-lock.json`. */
@@ -136,9 +150,15 @@ function plan(offers: Offer[], current: string[], picks: string[]): { add: strin
   };
 }
 
-async function apply(io: MoroIo, work: { clone: string; top: string; add: string[]; remove: string[] }): Promise<void> {
-  if (work.add.length > 0) {
-    const result = await runSkills(["add", work.clone, "-y", "--skill", ...work.add], { env: io.env, cwd: work.top });
+async function apply(io: MoroIo, work: { clone: string; top: string; add: string[]; remove: string[]; offers: Offer[] }): Promise<void> {
+  const local = work.offers.filter((offer) => offer.localOnly && work.add.includes(offer.name));
+  const shared = work.add.filter((name) => !local.some((offer) => offer.name === name));
+  const installs = [
+    ...(shared.length > 0 ? [["add", work.clone, "-y", "--skill", ...shared]] : []),
+    ...local.map((offer) => ["add", join(work.clone, LOCAL_ONLY_DIR, offer.group, offer.name), "-y"]),
+  ];
+  for (const args of installs) {
+    const result = await runSkills(args, { env: io.env, cwd: work.top });
     if (result.code !== 0) {
       throw new UserError(`Installing the skills failed, so nothing was installed.\n\n${result.output.trim()}\n\nNext: fix that, then run \`moro install\` again.`);
     }
@@ -152,9 +172,9 @@ async function apply(io: MoroIo, work: { clone: string; top: string; add: string
 }
 
 /** Appends the lock and each skill's folders (one per agent folder that holds it) to `.git/info/exclude`. */
-function excludeFromGit(top: string, excludeFile: string, names: string[]): void {
+function excludeFromGit(top: string, excludeFile: string, names: string[], withLock: boolean): void {
   const existing = existsSync(excludeFile) ? readFileSync(excludeFile, "utf8").split("\n") : [];
-  const wanted = [`/${LOCK_FILE}`, ...names.flatMap((name) => skillFolders(top, name))];
+  const wanted = [...(withLock ? [`/${LOCK_FILE}`] : []), ...names.flatMap((name) => skillFolders(top, name))];
   const lines = wanted.filter((line) => !existing.includes(line));
   if (lines.length === 0) return;
   mkdirSync(dirname(excludeFile), { recursive: true });

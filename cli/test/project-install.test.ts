@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { createWorld, skillMd, type World } from "./world.js";
+import { createWorld, skillMd, writeFiles, type World } from "./world.js";
 
 const SET = {
   "skills/engineering/tdd/SKILL.md": skillMd("tdd"),
@@ -121,4 +121,58 @@ test("runs at the git top level when started in a subfolder", async () => {
 
   expect(result.code, result.stderr).toBe(0);
   expect(existsSync(join(world.project, "skills-lock.json"))).toBe(true);
+});
+
+/** A clone with local-only skills, which are never committed to the set. */
+function withLocalOnly(files: Record<string, string>): World {
+  const world = createWorld({ set: SET });
+  const clone = world.cloneSet();
+  writeFiles(clone, files);
+  world.recordClone(clone);
+  return world;
+}
+
+test("local-only skills are offered under Recommended with their group, ticked on a first install", async () => {
+  const world = withLocalOnly({ "local-only/work/deploy/SKILL.md": skillMd("deploy") });
+
+  const result = await world.run(["install"], { answers: [["tdd", "grill", "deploy"], "exclude"] });
+
+  expect(result.code, result.stderr).toBe(0);
+  const request = result.prompts[0] as any;
+  expect(request.choices.map((c: any) => [c.value, c.section, c.group, !!c.picked])).toContainEqual([
+    "deploy",
+    "Recommended",
+    "work",
+    true,
+  ]);
+  expect(installed(world.project)).toEqual(["deploy", "grill", "tdd"]);
+  expect(readFileSync(join(world.project, ".claude/skills/deploy/SKILL.md"), "utf8")).toBe(skillMd("deploy"));
+});
+
+test("local-only skills stay out of git even when the project commits its other skills", async () => {
+  const world = withLocalOnly({ "local-only/work/deploy/SKILL.md": skillMd("deploy") });
+
+  const result = await world.run(["install"], { answers: [["tdd", "deploy"], "commit"] });
+
+  expect(result.code, result.stderr).toBe(0);
+  const status = world.git(["status", "--porcelain", "-uall"], world.project);
+  expect(status).toContain(".claude/skills/tdd");
+  expect(status).not.toContain("deploy");
+  expect(excluded(world.project)).toContain("/.claude/skills/deploy");
+  expect(excluded(world.project)).not.toContain("/skills-lock.json");
+});
+
+test("a name in both skills/ and local-only/ stops the install, naming both paths", async () => {
+  const world = withLocalOnly({ "local-only/work/tdd/SKILL.md": skillMd("tdd") });
+
+  const result = await world.run(["install", "--yes"]);
+
+  expect(result.code).toBe(1);
+  expect(result.stderr).toContain("skills/engineering/tdd");
+  expect(result.stderr).toContain("local-only/work/tdd");
+  expect(existsSync(join(world.project, "skills-lock.json"))).toBe(false);
+});
+
+test("the set ignores local-only/ in git", () => {
+  expect(readFileSync(join(__dirname, "../../.gitignore"), "utf8").split("\n")).toContain("local-only/");
 });
