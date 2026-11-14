@@ -19,12 +19,14 @@ test("intake copies the source's skill folder into skills/, writes the manifest 
   const result = await world.run(["add", source.url, "hello", "--yes"], { cwd: clone });
 
   expect(result.code, result.stderr).toBe(0);
-  expect(readFileSync(join(clone, "skills/hello/SKILL.md"), "utf8")).toBe(skillMd("hello"));
-  expect(readFileSync(join(clone, "skills/hello/references/notes.md"), "utf8")).toBe("Some notes.\n");
+  expect(readFileSync(join(clone, "skills/misc/hello/SKILL.md"), "utf8")).toBe(skillMd("hello"));
+  expect(readFileSync(join(clone, "skills/misc/hello/references/notes.md"), "utf8")).toBe("Some notes.\n");
   expect(readManifest(clone)).toEqual({
     moro: "0.1.0",
     sources: { tools: { repo: source.url, rename: [] } },
     skills: { hello: { source: "tools", path: "skills/hello", pin: source.head(), skipped: [] } },
+    recommended: [],
+    dependsOn: {},
   });
   expect(log(world, clone)).toEqual([`${SET_IDENTITY}|add: tools hello`, `world <world@moro.test>|initial`]);
   expect(world.git(["status", "--porcelain"], clone)).toBe("");
@@ -70,7 +72,7 @@ test.each([
 
   expect(result.code, result.stderr).toBe(0);
   expect(readManifest(clone).skills.hello.pin).toBe(first);
-  expect(readFileSync(join(clone, "skills/hello/SKILL.md"), "utf8")).toBe(skillMd("hello"));
+  expect(readFileSync(join(clone, "skills/misc/hello/SKILL.md"), "utf8")).toBe(skillMd("hello"));
 });
 
 test("#ref pins the latest commit of a branch other than the default one", async () => {
@@ -99,33 +101,13 @@ test("the key is the frontmatter name, while path keeps the source's own folder"
   });
 
   expect(result.code, result.stderr).toBe(0);
-  expect(readFileSync(join(clone, "skills/vercel-react-best-practices/SKILL.md"), "utf8")).toBe(
+  expect(readFileSync(join(clone, "skills/misc/vercel-react-best-practices/SKILL.md"), "utf8")).toBe(
     skillMd("vercel-react-best-practices"),
   );
   expect(readManifest(clone).skills["vercel-react-best-practices"]).toMatchObject({
     source: "agent-skills",
     path: "skills/react-best-practices",
   });
-});
-
-test("--work puts the skill in work/ and the manifest entry looks the same", async () => {
-  const world = createWorld();
-  const source = world.source("company/work", { "skills/deploy/SKILL.md": skillMd("deploy") });
-  const clone = world.cloneSet();
-  world.recordClone(clone);
-
-  const result = await world.run(["add", "company/work", "deploy", "--work", "--yes"], { cwd: clone });
-
-  expect(result.code, result.stderr).toBe(0);
-  expect(readFileSync(join(clone, "work/deploy/SKILL.md"), "utf8")).toBe(skillMd("deploy"));
-  expect(existsSync(join(clone, "skills/deploy"))).toBe(false);
-  expect(readManifest(clone).skills.deploy).toEqual({
-    source: "work",
-    path: "skills/deploy",
-    pin: source.head(),
-    skipped: [],
-  });
-  expect(world.git(["status", "--porcelain"], clone)).toBe("");
 });
 
 function manifestWith(sources: Record<string, { repo: string; rename: [string, string][] }>): string {
@@ -192,7 +174,7 @@ test("rename rules apply in order and whole-word to text and file names, and the
   const result = await world.run(["add", "mattpocock/skills", "ask-matt", "--yes"], { cwd: clone });
 
   expect(result.code, result.stderr).toBe(0);
-  const folder = join(clone, "skills/ask-moro");
+  const folder = join(clone, "skills/engineering/ask-moro");
   expect(readFileSync(join(folder, "SKILL.md"), "utf8")).toBe(
     [
       "---",
@@ -231,17 +213,17 @@ test("intake takes every file verbatim: licences, tool metadata, hidden and bina
   const result = await world.run(["add", "mattpocock/skills", "tdd", "--yes"], { cwd: clone });
 
   expect(result.code, result.stderr).toBe(0);
-  const files = world.git(["ls-files", "skills/tdd"], clone).split("\n").sort();
+  const files = world.git(["ls-files", "skills/misc/tdd"], clone).split("\n").sort();
   expect(files).toEqual([
-    "skills/tdd/.hidden",
-    "skills/tdd/LICENSE.txt",
-    "skills/tdd/SKILL.md",
-    "skills/tdd/agents/openai.yaml",
-    "skills/tdd/logo.png",
-    "skills/tdd/metadata.json",
-    "skills/tdd/scripts/run.sh",
+    "skills/misc/tdd/.hidden",
+    "skills/misc/tdd/LICENSE.txt",
+    "skills/misc/tdd/SKILL.md",
+    "skills/misc/tdd/agents/openai.yaml",
+    "skills/misc/tdd/logo.png",
+    "skills/misc/tdd/metadata.json",
+    "skills/misc/tdd/scripts/run.sh",
   ]);
-  expect(readFileSync(join(clone, "skills/tdd/logo.png"), "utf8")).toBe(binary);
+  expect(readFileSync(join(clone, "skills/misc/tdd/logo.png"), "utf8")).toBe(binary);
 });
 
 test("several skills from one source make one commit, and own skills get no manifest entry", async () => {
@@ -261,7 +243,7 @@ test("several skills from one source make one commit, and own skills get no mani
   expect(Object.keys(readManifest(clone).skills)).toEqual(["one", "two"]);
   expect(log(world, clone)).toEqual([`${SET_IDENTITY}|add: tools one two`, `world <world@moro.test>|initial`]);
   expect(result.stdout).toContain(
-    "Added one, two from tools in one commit.\nPushed.\n\nNext: run `moro refresh` on each machine that should have them.\n",
+    "Added one, two from tools in one commit.\nPushed.\n\nNext: run /setup-moro-skills in each project that should get them.\n",
   );
 });
 
@@ -278,7 +260,7 @@ test("the commit takes only intake's files, leaving the owner's other changes as
   expect(result.code, result.stderr).toBe(0);
   expect(world.git(["show", "--name-only", "--format=", "HEAD"], clone).split("\n")).toEqual([
     "manifest.json",
-    "skills/hello/SKILL.md",
+    "skills/misc/hello/SKILL.md",
   ]);
   expect(world.git(["status", "--porcelain"], clone)).toBe("M  README.md\n?? notes.md".trim());
 });
@@ -294,20 +276,6 @@ test("without a repo-level git identity, intake stops before changing anything",
   expect(result.code).toBe(1);
   expect(result.stderr).toContain("The set's clone has no git identity of its own");
   expect(result.stderr).toContain('git config user.email "<your personal email>"');
-  expect(world.git(["status", "--porcelain"], clone)).toBe("");
-  expect(log(world, clone)).toHaveLength(1);
-});
-
-test.each([["skills"], ["work"]])("a skill whose name is already in %s/ stops intake", async (folder) => {
-  const world = createWorld({ set: { [`${folder}/hello/SKILL.md`]: skillMd("hello") } });
-  world.source("acme/tools", { "skills/hello/SKILL.md": `${skillMd("hello")}Theirs.\n` });
-  const clone = world.cloneSet();
-  world.recordClone(clone);
-
-  const result = await world.run(["add", "acme/tools", "hello", "--yes"], { cwd: clone });
-
-  expect(result.code).toBe(1);
-  expect(result.stderr).toContain(`hello is already in the set (${folder}/hello).`);
   expect(world.git(["status", "--porcelain"], clone)).toBe("");
   expect(log(world, clone)).toHaveLength(1);
 });
@@ -372,9 +340,9 @@ test("intake keeps file modes and symlinks", async () => {
   const result = await world.run(["add", "mattpocock/skills", "tdd", "--yes"], { cwd: clone });
 
   expect(result.code, result.stderr).toBe(0);
-  expect(statSync(join(clone, "skills/tdd/scripts/run.sh")).mode & 0o111).not.toBe(0);
-  expect(lstatSync(join(clone, "skills/tdd/link.md")).isSymbolicLink()).toBe(true);
-  expect(readlinkSync(join(clone, "skills/tdd/link.md"))).toBe("notes.md");
+  expect(statSync(join(clone, "skills/misc/tdd/scripts/run.sh")).mode & 0o111).not.toBe(0);
+  expect(lstatSync(join(clone, "skills/misc/tdd/link.md")).isSymbolicLink()).toBe(true);
+  expect(readlinkSync(join(clone, "skills/misc/tdd/link.md"))).toBe("notes.md");
 });
 
 test("a file that isn't UTF-8 keeps its bytes", async () => {
@@ -388,7 +356,7 @@ test("a file that isn't UTF-8 keeps its bytes", async () => {
   const result = await world.run(["add", "acme/tools", "hello", "--yes"], { cwd: clone });
 
   expect(result.code, result.stderr).toBe(0);
-  expect(readFileSync(join(clone, "skills/hello/latin1.txt"))).toEqual(bytes);
+  expect(readFileSync(join(clone, "skills/misc/hello/latin1.txt"))).toEqual(bytes);
 });
 
 test("a GitHub SSH URL is the same source as its owner/repo shorthand", async () => {

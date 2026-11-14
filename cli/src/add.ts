@@ -1,8 +1,10 @@
 // `moro add <ref> [skill…]`: intake of skills from a source into the set,
 // with prompts, or with none under `--yes`.
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, sep } from "node:path";
+import { readDevice } from "./device.js";
 import { type Git, GitError, gitRunner } from "./git.js";
+import { readLocations } from "./locations.js";
 import {
   addSource,
   hasSkill,
@@ -17,7 +19,7 @@ import type { MoroIo } from "./main.js";
 import { askYesNo, type Prompter } from "./prompter.js";
 import { cloneUrl, parseRef, type SourceRef } from "./ref.js";
 import { render, renderName } from "./render.js";
-import { existingSkillFolder, skillFolder } from "./set-layout.js";
+import { existingSkillFolder, groupsInSet, LOCAL_ONLY_DIR, skillFolder, skillsInSet } from "./set-layout.js";
 import { checkout, type Checkout, findSkills, type FoundSkill, readSkillFiles, UnknownRevisionError } from "./source.js";
 import { UserError } from "./user-error.js";
 import { MORO_VERSION } from "./version.js";
@@ -26,8 +28,12 @@ interface AddArgs {
   input: string;
   ref: SourceRef;
   skills: string[];
-  /** Put the skills in `work/`, so they install only on work machines. */
-  work: boolean;
+  /** The group for every skill, instead of asking. */
+  group?: string;
+  /** The skills are recommended, instead of asking. */
+  recommended: boolean;
+  /** The keys every skill depends on, instead of asking. */
+  dependsOn?: string[];
   /** Take every skill in the source that isn't in the set yet. */
   all: boolean;
   /** Ask nothing: take each default, and push. */
@@ -40,15 +46,20 @@ interface Keyed {
   name: string;
 }
 
-/** One skill coming in: where it is in the source, its name in the set, and its folder there. */
+/** One skill coming in: where it is in the source, its name in the set, its folder there, and the skills it needs. */
 interface Incoming extends Keyed {
   folder: string;
+  dependsOn: string[];
 }
 
 /** What one add run does to the set. */
 interface Plan {
   sourceId: string;
+  /** Skills with their keys, before groups and dependencies are settled. */
+  keyed: Keyed[];
   incoming: Incoming[];
+  /** Whether the incoming skills go in the manifest's `recommended`. */
+  recommended: boolean;
   /** Rules added to the source's rename rules, to give a clashing newcomer another key. */
   rules: RenameRule[];
   /** Set skills a newcomer of the same name takes the place of. */
@@ -61,8 +72,10 @@ interface Taken {
   folder?: string;
 }
 
-const OPTIONS = ["--yes", "-y", "--work", "--all"];
-const USAGE = "moro add <ref> [skill…] [--all] [--work] [--yes]";
+const OPTIONS = ["--yes", "-y", "--all", "--recommended"];
+const USAGE = "moro add <ref> [skill…] [--all] [--group <name>] [--recommended] [--depends-on <key…>] [--yes]";
+/** The group for a skill whose source gives it no folder above it. */
+const DEFAULT_GROUP = "misc";
 /** The `skills` CLI's skill names: lowercase words joined by single hyphens. */
 const KEY = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const NOTHING_ADDED = "Nothing was added.";
@@ -70,9 +83,7 @@ const NOTHING_ADDED = "Nothing was added.";
 export async function add(io: MoroIo, argv: string[]): Promise<number> {
   const args = parseArgs(argv);
   const git = gitRunner(io.env);
-  const setDir = await git(["rev-parse", "--show-toplevel"], io.cwd).catch(() => {
-    throw new UserError("Run moro add in the set's clone.");
-  });
+  const setDir = findClone(io);
   await requireRepoIdentity(git, setDir);
 
   const source = await checkoutSource(git, args);
@@ -88,9 +99,10 @@ export async function add(io: MoroIo, argv: string[]): Promise<number> {
       );
       return 0;
     }
-    const plan = args.yes
-      ? planWithoutPrompts(setDir, manifest, sourceId, chosen, args.work)
-      : await planWithPrompts(io, git, setDir, manifest, sourceId, chosen, args.work);
+    const keyed = args.yes
+      ? keyWithoutPrompts(setDir, manifest, sourceId, chosen)
+      : await keyWithPrompts(io, git, setDir, manifest, sourceId, chosen);
+    const plan = await place(io, args, setDir, manifest, source, keyed);
     if (plan.incoming.length === 0) {
       io.stdout.write(`${NOTHING_ADDED}\n\nNext: run \`moro add ${args.input}\` to pick again.\n`);
       return 0;
@@ -107,13 +119,47 @@ export async function add(io: MoroIo, argv: string[]): Promise<number> {
 }
 
 function parseArgs(argv: string[]): AddArgs {
-  const unknown = argv.find((arg) => arg.startsWith("-") && !OPTIONS.includes(arg));
-  if (unknown) throw new UserError(`Unknown option: ${unknown}\n\nNext: run ${USAGE}`);
-  const [input, ...skills] = argv.filter((arg) => !arg.startsWith("-"));
+  const positional: string[] = [];
+  let group: string | undefined;
+  let dependsOn: string[] | undefined;
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]!;
+    if (arg === "--group") {
+      group = argv[++i];
+      if (!group || !KEY.test(group)) throw new UserError(`--group takes a name in lowercase letters, digits and hyphens.\n\nNext: run ${USAGE}`);
+    } else if (arg === "--depends-on") {
+      dependsOn = [];
+      while (i + 1 < argv.length && !argv[i + 1]!.startsWith("-")) dependsOn.push(argv[++i]!);
+      if (dependsOn.length === 0) throw new UserError(`--depends-on takes the keys of set skills.\n\nNext: run ${USAGE}`);
+    } else if (arg.startsWith("-")) {
+      if (!OPTIONS.includes(arg)) throw new UserError(`Unknown option: ${arg}\n\nNext: run ${USAGE}`);
+    } else positional.push(arg);
+  }
+  const [input, ...skills] = positional;
   if (!input) throw new UserError(`Name a source: ${USAGE}`);
   if (input.startsWith(".")) throw new UserError(`Give ${input} as a git URL or an absolute path, not a relative one.`);
   const yes = argv.includes("--yes") || argv.includes("-y");
-  return { input, ref: parseRef(input), skills, work: argv.includes("--work"), all: argv.includes("--all"), yes };
+  return {
+    input,
+    ref: parseRef(input),
+    skills,
+    ...(group ? { group } : {}),
+    recommended: argv.includes("--recommended"),
+    ...(dependsOn ? { dependsOn } : {}),
+    all: argv.includes("--all"),
+    yes,
+  };
+}
+
+/** The clone the device file records, wherever moro runs. */
+function findClone(io: MoroIo): string {
+  const clone = readDevice(readLocations(io.env).deviceFile)?.clone;
+  if (!clone || !existsSync(join(clone, ".git"))) {
+    throw new UserError(
+      `The device file's clone${clone ? ` (${clone})` : ""} isn't a git clone.\n\nNext: run ./install.sh in the set's clone.`,
+    );
+  }
+  return clone;
 }
 
 async function checkoutSource(git: Git, args: AddArgs): Promise<Checkout> {
@@ -176,22 +222,16 @@ async function chooseSkills(
 }
 
 /** Every skill under its rendered name, with any clash stopping the run. */
-function planWithoutPrompts(
-  setDir: string,
-  manifest: Manifest,
-  sourceId: string,
-  chosen: FoundSkill[],
-  work: boolean,
-): Plan {
+function keyWithoutPrompts(setDir: string, manifest: Manifest, sourceId: string, chosen: FoundSkill[]): Plan {
   const rules = manifest.sources[sourceId]!.rename;
-  const plan: Plan = { sourceId, incoming: [], rules: [], replaced: [] };
+  const plan: Plan = { sourceId, keyed: [], incoming: [], recommended: false, rules: [], replaced: [] };
   for (const skill of chosen) {
     const name = renderName(skill.name, rules);
-    const earlier = takenInRun(plan.incoming, name);
+    const earlier = takenInRun(plan.keyed, name);
     if (earlier) throw clash(`${earlier.skill.name} and ${skill.name} would both be ${name} in the set.`);
     const taken = takenInSet(setDir, manifest, plan, name);
     if (taken) throw clash(`${name} is already in the set (${taken.where}).`);
-    plan.incoming.push({ skill, name, folder: skillFolder(name, work) });
+    plan.keyed.push({ skill, name });
   }
   return plan;
 }
@@ -201,24 +241,22 @@ function clash(message: string): UserError {
 }
 
 /**
- * Asks the keys (each one, or every skill's own name), resolves clashes with
- * the set, then asks once whether the skills are work unless `--work` was given.
+ * Asks the keys (each one, or every skill's own name) and resolves clashes with the set.
  */
-async function planWithPrompts(
+async function keyWithPrompts(
   io: MoroIo,
   git: Git,
   setDir: string,
   manifest: Manifest,
   sourceId: string,
   chosen: FoundSkill[],
-  workFlag: boolean,
 ): Promise<Plan> {
   const { prompter } = io;
   const say = (text: string) => io.stdout.write(`${text}\n`);
   // Rules added here apply to the rest of the run, and are written with the manifest.
   const rules = manifest.sources[sourceId]!.rename;
-  const plan: Plan = { sourceId, incoming: [], rules: [], replaced: [] };
-  const keyed: Keyed[] = [];
+  const plan: Plan = { sourceId, keyed: [], incoming: [], recommended: false, rules: [], replaced: [] };
+  const keyed = plan.keyed;
   const takenInThisRun = (key: string) => {
     const earlier = takenInRun(keyed, key);
     return earlier && `${key} is taken by ${earlier.skill.path} in this run. Pick another key.`;
@@ -236,11 +274,13 @@ async function planWithPrompts(
 
     const taken = takenInSet(setDir, manifest, plan, name);
     if (taken) {
+      // A local-only skill is never replaced: nothing of it is committed to restore it from.
+      const replaceable = !taken.where.startsWith(`${LOCAL_ONLY_DIR}/`);
       const answer = await prompter.select({
         message: `${name} is already in the set (${taken.where}). Keep which?`,
         choices: [
           { value: "keep", label: `Keep the set's ${name}, and don't add ${sourceId}'s` },
-          { value: "replace", label: `Take ${sourceId}'s ${name} in place of the set's` },
+          ...(replaceable ? [{ value: "replace", label: `Take ${sourceId}'s ${name} in place of the set's` }] : []),
           { value: "rename", label: `Take ${sourceId}'s under another key, with a rename rule on ${sourceId}` },
         ],
         recommended: "keep",
@@ -251,6 +291,9 @@ async function planWithPrompts(
         if (taken.folder) await requireCommitted(git, setDir, taken.folder);
         plan.replaced.push({ name, ...(taken.folder ? { folder: taken.folder } : {}) });
         delete manifest.skills[name];
+        delete manifest.dependsOn[name];
+        manifest.recommended = manifest.recommended.filter((path) => path !== taken.folder);
+        if (manifest.required) manifest.required = manifest.required.filter((path) => path !== taken.folder);
       } else {
         const original = name;
         name = await askKey(prompter, say, `Key for ${sourceId}'s ${skill.name} in the set?`, `${sourceId}-${original}`, (key) => {
@@ -268,19 +311,99 @@ async function planWithPrompts(
     keyed.push({ skill, name });
   }
 
-  if (keyed.length === 0) return plan;
-  const names = keyed.map(({ name }) => name);
-  const work =
-    workFlag ||
-    (await askYesNo(
-      prompter,
-      names.length === 1
-        ? `Is ${names[0]} a work skill, installed only on work machines?`
-        : `Are ${names.length <= 5 ? names.join(", ") : `these ${names.length} skills`} work skills, installed only on work machines?`,
-      "no",
-    ));
-  plan.incoming = keyed.map(({ skill, name }) => ({ skill, name, folder: skillFolder(name, work) }));
   return plan;
+}
+
+/**
+ * Settles each skill's group, whether the skills are recommended and what each depends on:
+ * the flags answer, `--yes` takes the recommended answer, and otherwise the owner is asked.
+ */
+async function place(
+  io: MoroIo,
+  args: AddArgs,
+  setDir: string,
+  manifest: Manifest,
+  source: Checkout,
+  plan: Plan,
+): Promise<Plan> {
+  const { prompter } = io;
+  const { keyed } = plan;
+  if (keyed.length === 0) return plan;
+  const rules = manifest.sources[plan.sourceId]!.rename;
+
+  const groups: string[] = [];
+  for (const { skill, name } of keyed) {
+    const suggested = sourceGroup(skill.path);
+    if (args.group) groups.push(args.group);
+    else if (args.yes) groups.push(suggested);
+    else {
+      const others = groupsInSet(setDir).filter((group) => group !== suggested);
+      const answer = await prompter.select({
+        message: `Group for ${name} in the set?`,
+        choices: [suggested, ...others].map((group) => ({ value: group, label: group })),
+        recommended: suggested,
+        allowTyped: "another group",
+      });
+      const group = "value" in answer ? answer.value : answer.typed;
+      if (!KEY.test(group)) {
+        throw new UserError(`${group} can't be a group: use lowercase letters, digits and hyphens.\n\n${NOTHING_ADDED}`);
+      }
+      groups.push(group);
+    }
+  }
+
+  const names = keyed.map(({ name }) => name);
+  plan.recommended =
+    args.recommended ||
+    (!args.yes &&
+      (await askYesNo(
+        prompter,
+        names.length === 1
+          ? `Is ${names[0]} recommended?`
+          : `Are ${names.length <= 5 ? names.join(", ") : `these ${names.length} skills`} recommended?`,
+        "no",
+      )));
+
+  const candidates = [...new Set([...skillsInSet(setDir), ...names])].sort();
+  const unknown = args.dependsOn?.find((key) => !candidates.includes(key));
+  if (unknown) {
+    throw new UserError(`${unknown} is not a skill in the set, so nothing can depend on it.\n\n${NOTHING_ADDED}`);
+  }
+  for (const [index, { skill, name }] of keyed.entries()) {
+    const others = candidates.filter((key) => key !== name);
+    let dependsOn: string[];
+    if (args.dependsOn) dependsOn = args.dependsOn.filter((key) => key !== name);
+    else if (others.length === 0) dependsOn = [];
+    else {
+      const text = skillText(source, skill, rules, name);
+      const mentioned = others.filter((key) => mentions(text, key));
+      dependsOn = args.yes
+        ? mentioned
+        : await prompter.multiSelect({
+            message: `Which set skills does ${name} depend on?`,
+            choices: others.map((key) => ({ value: key, label: key, ...(mentioned.includes(key) ? { picked: true } : {}) })),
+          });
+    }
+    plan.incoming.push({ skill, name, folder: skillFolder(name, groups[index]!), dependsOn });
+  }
+  return plan;
+}
+
+/** The folder above the skill in its source, or the default group when the skill sits at the top. */
+function sourceGroup(path: string): string {
+  const parent = dirname(path).split("/").pop() ?? "";
+  return KEY.test(parent) && parent !== "skills" ? parent : DEFAULT_GROUP;
+}
+
+/** The skill's `SKILL.md` as the set will hold it. */
+function skillText(source: Checkout, skill: FoundSkill, rules: RenameRule[], name: string): string {
+  const file = render(readSkillFiles(join(source.dir, skill.path)), rules, name).find((f) => f.path === "SKILL.md");
+  return file && "content" in file ? file.content.toString("utf8") : "";
+}
+
+/** Whether the text names the skill as a whole word (`spec` is not in `specification` or `to-spec-x`). */
+function mentions(text: string, key: string): boolean {
+  return new RegExp(`(?<![\\w-])${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`).test(text);
 }
 
 async function askKeyMode(prompter: Prompter, count: number): Promise<string> {
@@ -346,7 +469,10 @@ async function intake(git: Git, setDir: string, source: Checkout, manifest: Mani
   const names = plan.incoming.map(({ name }) => name);
   try {
     for (const folder of replacedFolders) rmSync(join(setDir, folder), { recursive: true, force: true });
-    for (const { skill, name, folder } of plan.incoming) {
+    for (const { skill, name, folder, dependsOn } of plan.incoming) {
+      const path = folder.split(sep).join("/");
+      if (plan.recommended && !manifest.recommended.includes(path)) manifest.recommended.push(path);
+      if (dependsOn.length > 0) manifest.dependsOn[name] = dependsOn;
       for (const file of render(readSkillFiles(join(source.dir, skill.path)), rules, name)) {
         const target = join(setDir, folder, file.path);
         mkdirSync(dirname(target), { recursive: true });
@@ -404,7 +530,7 @@ async function offerPush(io: MoroIo, git: Git, setDir: string, yes: boolean): Pr
     );
     return 1;
   }
-  io.stdout.write("Pushed.\n\nNext: run `moro refresh` on each machine that should have them.\n");
+  io.stdout.write("Pushed.\n\nNext: run /setup-moro-skills in each project that should get them.\n");
   return 0;
 }
 

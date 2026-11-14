@@ -28,14 +28,21 @@ export interface Manifest {
   moro: string;
   sources: Record<string, Source>;
   skills: Record<string, UpstreamSkill>;
+  /** Paths in the set (`skills/<group>/<name>`, or `local-only/*`) a project install ticks first. */
+  recommended: string[];
+  /** Paths in the set a project install always includes. */
+  required?: string[];
+  /** A key to the keys it needs. Never names a local-only skill. */
+  dependsOn: Record<string, string[]>;
 }
 
 export const MANIFEST_FILE = "manifest.json";
 
 export function readManifest(setDir: string, moroVersion: string): Manifest {
   const file = join(setDir, MANIFEST_FILE);
-  if (!existsSync(file)) return { moro: moroVersion, sources: {}, skills: {} };
-  return JSON.parse(readFileSync(file, "utf8")) as Manifest;
+  if (!existsSync(file)) return { moro: moroVersion, sources: {}, skills: {}, recommended: [], dependsOn: {} };
+  const parsed = JSON.parse(readFileSync(file, "utf8")) as Partial<Manifest>;
+  return { ...parsed, recommended: parsed.recommended ?? [], dependsOn: parsed.dependsOn ?? {} } as Manifest;
 }
 
 export function writeManifest(setDir: string, manifest: Manifest): void {
