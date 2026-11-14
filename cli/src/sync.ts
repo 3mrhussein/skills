@@ -1,5 +1,5 @@
-// `moro sync status|show|accept|skip`: what changed upstream since each
-// upstream skill's pin, and one decision per skill (ADR 0003, ADR 0004).
+// `moro sync status|show|accept|skip|fallback`: what changed upstream since each
+// upstream skill's pin, and one decision per skill (ADR 0003, ADR 0004, ADR 0007).
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -10,6 +10,7 @@ import { UP_TO_DATE } from "./hints.js";
 import { frontmatterName } from "./frontmatter.js";
 import { type Git, GitError, gitRunner } from "./git.js";
 import type { MoroIo } from "./main.js";
+import type { Choice } from "./prompter.js";
 import { forgetSkill, MANIFEST_FILE, type Manifest, readManifest, type RenameRule, type UpstreamSkill, writeManifest } from "./manifest.js";
 import { cloneUrl } from "./ref.js";
 import { render, renderName } from "./render.js";
@@ -18,7 +19,19 @@ import { checkout, type Checkout, findSkills, readSkillFiles, type SkillFile } f
 import { UserError } from "./user-error.js";
 import { MORO_VERSION } from "./version.js";
 
-const USAGE = "moro sync [--yes] | status | show <skill> | accept <skill> | skip <skill>";
+const USAGE = "moro sync [--yes] | status | show <skill> | accept <skill> | skip <skill> | fallback <skill>";
+
+/** What a decision does to a skill's upstream change. */
+type Decision = "accept" | "skip" | "fallback";
+
+/** Fallback is offered only for a skill with hand edits that upstream still holds: otherwise it equals accept. */
+const offersFallback = (skill: Pending) => !skill.removed && skill.handEdits.length > 0;
+
+/** The decision commands for a skill, as a next step names them. */
+function decisionCommands(skill: Pending): string {
+  const commands = ["accept", "skip", ...(offersFallback(skill) ? ["fallback"] : [])].map((action) => `\`moro sync ${action} ${skill.key}\``);
+  return `${commands.slice(0, -1).join(", ")} or ${commands.at(-1)}`;
+}
 
 export async function sync(io: MoroIo, argv: string[]): Promise<number> {
   const [action, ...rest] = argv;
@@ -36,7 +49,8 @@ export async function sync(io: MoroIo, argv: string[]): Promise<number> {
       return status(io, git, setDir, manifest);
     case "show":
     case "accept":
-    case "skip": {
+    case "skip":
+    case "fallback": {
       if (rest.length !== 1 || rest[0]!.startsWith("-")) throw usage(`${action} takes one skill`);
       const key = rest[0]!;
       if (!Object.hasOwn(manifest.skills, key)) {
@@ -285,11 +299,11 @@ async function status(io: MoroIo, git: Git, setDir: string, manifest: Manifest):
     const out = lines.length > 0 ? [...lines] : found.unreachable.size === 0 ? [UP_TO_DATE] : [];
     const news = newUpstreamLines(found);
     if (news.length > 0) out.push("", ...news);
-    const first = pending.find((skill) => !skill.pure)?.key;
+    const first = pending.find((skill) => !skill.pure);
     if (held.length > 0) {
       out.push("", `Next: resolve the conflict markers, then run \`moro sync accept ${held[0]}\`.`);
     } else if (first) {
-      out.push("", `Next: run \`moro sync show ${first}\`, then \`moro sync accept ${first}\` or \`moro sync skip ${first}\`.`);
+      out.push("", `Next: run \`moro sync show ${first.key}\`, then ${decisionCommands(first)}.`);
     } else if (lines.length > 0) {
       out.push("", "Next: run `moro sync`.");
     }
@@ -310,6 +324,7 @@ async function interactive(io: MoroIo, git: Git, setDir: string, manifest: Manif
     const pending = (await followMoves(io, git, setDir, manifest, found.pending)).filter((skill) => !held.includes(skill.key));
     const accepted: string[] = [];
     const skipped: string[] = [];
+    const fellBack: string[] = [];
     const later: string[] = [];
     const conflicted: { key: string; files: string[] }[] = [];
     for (const [index, skill] of pending.entries()) {
@@ -326,10 +341,15 @@ async function interactive(io: MoroIo, git: Git, setDir: string, manifest: Manif
             { value: "later", label: "Later: decide next time" },
             { value: "show", label: "Show the diff" },
           ];
+          const [accept, skip, later, show] = choices as [Choice, Choice, Choice, Choice];
+          // Fallback comes after accept and skip, and is never the default.
+          const fallback: Choice[] = offersFallback(skill)
+            ? [{ value: "fallback", label: `Fall back: drop your hand edits in ${skill.handEdits.join(", ")} and take the upstream text as it is` }]
+            : [];
           const answer = await io.prompter.select({
             message: `${skillLine(skill, conflicts)} (${index + 1} of ${pending.length})\nWhat should happen to ${skill.key}?`,
             // With no safe default, the cautious answers come first.
-            choices: clean ? choices : [choices[2]!, choices[1]!, choices[0]!, choices[3]!],
+            choices: clean ? [accept, skip, ...fallback, later, show] : [later, skip, accept, ...fallback, show],
             ...(clean ? { recommended: "accept" } : {}),
           });
           choice = "value" in answer ? answer.value : "later";
@@ -342,29 +362,30 @@ async function interactive(io: MoroIo, git: Git, setDir: string, manifest: Manif
         continue;
       }
       const files: string[] = [];
-      const code = await decide(io, git, setDir, manifest, skill.key, choice as "accept" | "skip", { conflicts: files });
+      const code = await decide(io, git, setDir, manifest, skill.key, choice as Decision, { conflicts: files });
       if (code !== 0) conflicted.push({ key: skill.key, files });
-      else (choice === "accept" ? accepted : skipped).push(skill.key);
+      else ({ accept: accepted, skip: skipped, fallback: fellBack })[choice as Decision].push(skill.key);
     }
 
     const out: string[] = [];
     if (accepted.length > 0) out.push(`Accepted: ${accepted.join(", ")}.`);
     if (skipped.length > 0) out.push(`Skipped: ${skipped.join(", ")}.`);
+    if (fellBack.length > 0) out.push(`Fell back: ${fellBack.join(", ")}.`);
     for (const key of held) out.push(`${heldLine(key)}.`);
     for (const { key, files } of conflicted) {
       const folder = existingSkillFolder(setDir, key) ?? key;
       out.push(`Conflict in ${files.join(", ")} of ${key}: diff3 markers are in ${folder}, the pin is moved, and nothing is committed for it.`);
     }
     if (later.length > 0) out.push(`Coming back next time: ${later.join(", ")}.`);
-    const decided = accepted.length + skipped.length + later.length + held.length + conflicted.length;
+    const decided = accepted.length + skipped.length + fellBack.length + later.length + held.length + conflicted.length;
     if (decided === 0 && found.unreachable.size === 0) out.push(UP_TO_DATE);
     out.push(...newUpstreamLines(found));
     if (out.length > 0) io.stdout.write(`${out.join("\n")}\n`);
 
     let code = reportUnreachable(io, found) ? 1 : 0;
-    const warning = accepted.length > 0 ? checkWarning(setDir) : "";
+    const warning = accepted.length + fellBack.length > 0 ? checkWarning(setDir) : "";
     if (warning) io.stdout.write(`\n${warning.trimEnd()}\n`);
-    if (accepted.length + skipped.length > 0) {
+    if (accepted.length + skipped.length + fellBack.length > 0) {
       io.stdout.write("\n");
       code = (await offerPush(io, git, setDir, yes)) || code;
     }
@@ -402,7 +423,7 @@ async function show(io: MoroIo, git: Git, setDir: string, manifest: Manifest, ke
       io.stdout.write(`${key} has no upstream changes since its pin.\n\nNext: run \`moro sync status\`.\n`);
       return 0;
     }
-    io.stdout.write(`${await describe(git, setDir, skill)}\n\nNext: run \`moro sync accept ${key}\` or \`moro sync skip ${key}\`.\n`);
+    io.stdout.write(`${await describe(git, setDir, skill)}\n\nNext: run ${decisionCommands(skill)}.\n`);
     return 0;
   } finally {
     release(fetches);
@@ -416,6 +437,7 @@ async function describe(git: Git, setDir: string, skill: Pending): Promise<strin
   const out = [
     `${key}: ${skill.entry.pin.slice(0, 7)} to ${skill.source.pin.slice(0, 7)} in ${skill.entry.source}`,
     skill.handEdits.length > 0 ? `Hand edits: ${skill.handEdits.join(", ")}` : "Hand edits: none",
+    ...(offersFallback(skill) ? ["Fallback drops them and takes the upstream text as it is."] : []),
     impactSummary(setDir, key),
   ];
   if (skill.removed) {
@@ -558,32 +580,59 @@ async function decide(
   setDir: string,
   manifest: Manifest,
   key: string,
-  action: "accept" | "skip",
+  action: Decision,
   batch?: { conflicts: string[] },
 ): Promise<number> {
   await requireRepoIdentity(git, setDir);
-  const held = await heldKeys(git, setDir, manifest);
-  if (held.includes(key)) {
+  const heldBefore = await heldKeys(git, setDir, manifest);
+  // A fallback on an accept that waits for its markers drops the markers with the hand edits: it starts again from the committed pin.
+  const dropsMarkers = action === "fallback" && heldBefore.includes(key);
+  if (heldBefore.includes(key) && !dropsMarkers) {
     if (action === "skip") {
       throw new UserError(
-        `Accepting ${key} is waiting for its conflict markers to be resolved, so it can't be skipped.\n\nNext: resolve the markers, then run \`moro sync accept ${key}\`.`,
+        `Accepting ${key} is waiting for its conflict markers to be resolved, so it can't be skipped.\n\nNext: resolve the markers, then run \`moro sync accept ${key}\`, or \`moro sync fallback ${key}\` to drop your hand edits and take the upstream text as it is.`,
       );
     }
-    return finishAccept(io, git, setDir, manifest, key, held);
+    return finishAccept(io, git, setDir, manifest, key, heldBefore);
   }
+  if (dropsMarkers) {
+    const committedPin = (await committedManifest(git, setDir))!.skills![key]!.pin;
+    manifest.skills[key] = { ...manifest.skills[key]!, pin: committedPin };
+  }
+  const held = heldBefore.filter((other) => other !== key);
   await rerender(io, git, setDir, manifest);
   const { fetches, pending: found } = await pendingSkills(git, setDir, manifest, key);
   try {
     const [skill] = await followMoves(io, git, setDir, manifest, found);
     if (!skill) {
-      if (!batch) io.stdout.write(`${key} has no upstream changes since its pin, so there is nothing to ${action}.\n\nNext: run \`moro sync status\`.\n`);
+      const what = action === "fallback" ? "fall back" : action;
+      if (!batch) io.stdout.write(`${key} has no upstream changes since its pin, so there is nothing to ${what}.\n\nNext: run \`moro sync status\`.\n`);
       return 0;
     }
-    const paths = action === "accept" ? [skill.folder, MANIFEST_FILE] : [MANIFEST_FILE];
-    await requireCommitted(git, setDir, [skill.folder], action, held);
+    if (action === "fallback" && skill.removed) {
+      throw new UserError(
+        `${key} was removed upstream, so there is no upstream text to fall back to. Nothing was changed.\n\nNext: run \`moro sync accept ${key}\` to delete it from the set, or \`moro sync skip ${key}\` to keep it as an own skill.`,
+      );
+    }
+    const paths = action === "skip" ? [MANIFEST_FILE] : [skill.folder, MANIFEST_FILE];
+    // The markers of a held accept are what a fallback drops, so its folder may hold them.
+    await requireCommitted(git, setDir, dropsMarkers ? [] : [skill.folder], action, heldBefore);
 
-    const merged = action === "accept" && !skill.removed ? await mergeSkill(git, skill) : undefined;
+    const merged =
+      action === "accept" && !skill.removed
+        ? await mergeSkill(git, skill)
+        : action === "fallback"
+          ? { files: skill.theirs, conflicts: [] }
+          : undefined;
     const conflicted = merged !== undefined && merged.conflicts.length > 0;
+    // The hand-edited files whose text the fallback replaces.
+    const theirs = byPath(skill.theirs);
+    const ours = byPath(skill.ours);
+    const dropped = action === "fallback" ? skill.handEdits.filter((path) => !sameFile(ours.get(path), theirs.get(path))) : [];
+    const message =
+      action === "fallback"
+        ? `sync: fall back ${key}${dropped.length > 0 ? `\n\nDropped the hand edits in ${dropped.join(", ")}.` : ""}`
+        : `sync: ${action} ${key}`;
 
     const before = readFileSync(join(setDir, MANIFEST_FILE));
     const { pin, skipped } = manifest.skills[key]!;
@@ -593,14 +642,15 @@ async function decide(
         ...manifest.skills[key]!,
         path: skill.headPath!,
         pin: skill.source.pin,
-        skipped: action === "skip" ? [...new Set([...skipped, ...skill.commits.map(({ sha }) => sha)])] : skipped,
+        skipped:
+          action === "skip" ? [...new Set([...skipped, ...skill.commits.map(({ sha }) => sha)])] : action === "fallback" ? [] : skipped,
       };
     }
     try {
       if (skill.removed && action === "accept") rmSync(join(setDir, skill.folder), { recursive: true, force: true });
       if (merged) replaceFolder(join(setDir, skill.folder), merged.files);
       if (conflicted) writeManifest(setDir, manifest);
-      else await commitPaths(git, setDir, manifest, held, paths, `sync: ${action} ${key}`);
+      else await commitPaths(git, setDir, manifest, held, paths, message);
     } catch (error) {
       await rollBack(git, setDir, error, { paths, discard: paths, manifestBefore: before });
     }
@@ -615,15 +665,20 @@ async function decide(
       return 1;
     }
     if (batch) return 0;
-    const verb = action === "accept" ? "Accepted" : "Skipped";
+    const newPin = skill.source.pin.slice(0, 7);
+    const verb = { accept: "Accepted", skip: "Skipped", fallback: "Fell back" }[action];
     const detail = skill.removed
       ? action === "accept"
         ? "removed upstream, so it is gone from the set"
         : "removed upstream, so it stays in the set as an own skill"
       : action === "accept"
-        ? `took the changes since ${pin.slice(0, 7)}, pin now ${skill.source.pin.slice(0, 7)}`
-        : `kept the copy as it is, pin now ${skill.source.pin.slice(0, 7)}`;
-    io.stdout.write(`${verb} ${key}: ${detail}, in one commit.\n\n${action === "accept" ? checkWarning(setDir) : ""}${NOT_PUSHED}`);
+        ? `took the changes since ${pin.slice(0, 7)}, pin now ${newPin}`
+        : action === "skip"
+          ? `kept the copy as it is, pin now ${newPin}`
+          : dropped.length > 0
+            ? `dropped the hand edits in ${dropped.join(", ")} and took the upstream text, pin now ${newPin}`
+            : `it had no hand edits, so it took the upstream changes as accept would, pin now ${newPin}`;
+    io.stdout.write(`${verb} ${key}: ${detail}, in one commit.\n\n${action === "skip" ? "" : checkWarning(setDir)}${NOT_PUSHED}`);
     return 0;
   } finally {
     release(fetches);
@@ -691,7 +746,8 @@ function sortKeys(value: unknown): Partial<Manifest> {
  * (a held accept's pin in the manifest and its folder's markers aside).
  */
 async function requireCommitted(git: Git, setDir: string, folders: string[], action: string, held: string[]): Promise<void> {
-  const clean = (await git(["status", "--porcelain", "--", ...folders], setDir)) === "" && (await manifestCommitted(git, setDir, held));
+  const foldersClean = folders.length === 0 || (await git(["status", "--porcelain", "--", ...folders], setDir)) === "";
+  const clean = foldersClean && (await manifestCommitted(git, setDir, held));
   if (clean) return;
   throw new UserError(
     `${[...folders, MANIFEST_FILE].join(" and ")} have uncommitted changes, and a decision makes one commit of its own. Nothing was changed.\n\nNext: commit or discard them, then rerun \`moro sync ${action}\`.`,

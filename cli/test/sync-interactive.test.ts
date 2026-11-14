@@ -52,7 +52,7 @@ test("a change that merges cleanly past a hand edit in another file still defaul
   expect(subject(world, clone)).toBe("sync: accept hello");
 });
 
-test("a change that touches a hand-edited file has no default, lists later and skip before accept, show prints the diff, later brings it back", async () => {
+test("a change that touches a hand-edited file has no default, lists later and skip before accept and fallback, show prints the diff, later brings it back", async () => {
   const { world, source, clone } = await setWithTools();
   source.commit({ "skills/hello/SKILL.md": `${skillMd("hello")}Upstream line.\n` }, "Add a line");
   edit(world, clone, "hello", "My wording.");
@@ -62,7 +62,7 @@ test("a change that touches a hand-edited file has no default, lists later and s
 
   expect(result.code, result.stderr).toBe(0);
   expect(result.prompts[0]).not.toHaveProperty("recommended");
-  expect(result.prompts[0]!.choices.map((choice) => choice.value)).toEqual(["later", "skip", "accept", "show"]);
+  expect(result.prompts[0]!.choices.map((choice) => choice.value)).toEqual(["later", "skip", "accept", "fallback", "show"]);
   expect(result.prompts).toHaveLength(2);
   expect(result.stdout).toContain("+Upstream line.");
   expect(result.stdout).toContain("Coming back next time: hello.");

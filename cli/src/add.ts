@@ -527,8 +527,11 @@ export async function offerPush(io: MoroIo, git: Git, setDir: string, yes: boole
     io.stdout.write("Not pushed: no device sees this until you push.\n\nNext: run `git push` in the set's clone.\n");
     return 0;
   }
+  // A branch with no upstream yet, such as a trial's, is pushed to origin under its own name and tracks it from then on.
+  const upstream = await git(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], setDir).catch(() => "");
+  const branch = upstream ? "" : await git(["symbolic-ref", "--short", "-q", "HEAD"], setDir).catch(() => "");
   try {
-    await git(["push", "-q"], setDir);
+    await git(branch ? ["push", "-q", "--set-upstream", "origin", branch] : ["push", "-q"], setDir);
   } catch (error) {
     if (!(error instanceof GitError)) throw error;
     io.stderr.write(
@@ -541,7 +544,8 @@ export async function offerPush(io: MoroIo, git: Git, setDir: string, yes: boole
     );
     return 1;
   }
-  io.stdout.write("Pushed.\n\nNext: run /setup-moro-skills in each project that should get them.\n");
+  const pushed = branch ? `Pushed ${branch} and set its upstream to origin/${branch}.` : "Pushed.";
+  io.stdout.write(`${pushed}\n\nNext: run /setup-moro-skills in each project that should get them.\n`);
   return 0;
 }
 
