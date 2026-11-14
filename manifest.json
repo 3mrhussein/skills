@@ -31,7 +31,282 @@
       ]
     }
   },
-  "skills": {},
+  "skills": {
+    "ask-moro": {
+      "source": "matt",
+      "path": "skills/engineering/ask-matt",
+      "pin": "5863806dd4e15c63174bee4e7515a4256792ecfa",
+      "skipped": []
+    },
+    "chief-of-staff": {
+      "source": "matt",
+      "path": "skills/in-progress/chief-of-staff",
+      "pin": "5863806dd4e15c63174bee4e7515a4256792ecfa",
+      "skipped": []
+    },
+    "claude-handoff": {
+      "source": "matt",
+      "path": "skills/in-progress/claude-handoff",
+      "pin": "5863806dd4e15c63174bee4e7515a4256792ecfa",
+      "skipped": []
+    },
+    "code-review": {
+      "source": "matt",
+      "path": "skills/engineering/code-review",
+      "pin": "5863806dd4e15c63174bee4e7515a4256792ecfa",
+      "skipped": []
+    },
+    "codebase-design": {
+      "source": "matt",
+      "path": "skills/engineering/codebase-design",
+      "pin": "5863806dd4e15c63174bee4e7515a4256792ecfa",
+      "skipped": []
+    },
+    "diagnosing-bugs": {
+      "source": "matt",
+      "path": "skills/engineering/diagnosing-bugs",
+      "pin": "5863806dd4e15c63174bee4e7515a4256792ecfa",
+      "skipped": []
+    },
+    "domain-modeling": {
+      "source": "matt",
+      "path": "skills/engineering/domain-modeling",
+      "pin": "5863806dd4e15c63174bee4e7515a4256792ecfa",
+      "skipped": []
+    },
+    "git-guardrails-claude-code": {
+      "source": "matt",
+      "path": "skills/misc/git-guardrails-claude-code",
+      "pin": "5863806dd4e15c63174bee4e7515a4256792ecfa",
+      "skipped": []
+    },
+    "grill-me": {
+      "source": "matt",
+      "path": "skills/productivity/grill-me",
+      "pin": "5863806dd4e15c63174bee4e7515a4256792ecfa",
+      "skipped": []
+    },
+    "grill-with-docs": {
+      "source": "matt",
+      "path": "skills/engineering/grill-with-docs",
+      "pin": "5863806dd4e15c63174bee4e7515a4256792ecfa",
+      "skipped": []
+    },
+    "grilling": {
+      "source": "matt",
+      "path": "skills/productivity/grilling",
+      "pin": "5863806dd4e15c63174bee4e7515a4256792ecfa",
+      "skipped": []
+    },
+    "handoff": {
+      "source": "matt",
+      "path": "skills/productivity/handoff",
+      "pin": "5863806dd4e15c63174bee4e7515a4256792ecfa",
+      "skipped": []
+    },
+    "implement": {
+      "source": "matt",
+      "path": "skills/engineering/implement",
+      "pin": "5863806dd4e15c63174bee4e7515a4256792ecfa",
+      "skipped": []
+    },
+    "implement-spec": {
+      "source": "matt",
+      "path": "skills/engineering/implement-spec",
+      "pin": "5863806dd4e15c63174bee4e7515a4256792ecfa",
+      "skipped": []
+    },
+    "improve-codebase-architecture": {
+      "source": "matt",
+      "path": "skills/engineering/improve-codebase-architecture",
+      "pin": "5863806dd4e15c63174bee4e7515a4256792ecfa",
+      "skipped": []
+    },
+    "loop-me": {
+      "source": "matt",
+      "path": "skills/in-progress/loop-me",
+      "pin": "5863806dd4e15c63174bee4e7515a4256792ecfa",
+      "skipped": []
+    },
+    "migrate-to-shoehorn": {
+      "source": "matt",
+      "path": "skills/misc/migrate-to-shoehorn",
+      "pin": "5863806dd4e15c63174bee4e7515a4256792ecfa",
+      "skipped": []
+    },
+    "pr": {
+      "source": "matt",
+      "path": "skills/engineering/pr",
+      "pin": "5863806dd4e15c63174bee4e7515a4256792ecfa",
+      "skipped": []
+    },
+    "prototype": {
+      "source": "matt",
+      "path": "skills/engineering/prototype",
+      "pin": "5863806dd4e15c63174bee4e7515a4256792ecfa",
+      "skipped": []
+    },
+    "research": {
+      "source": "matt",
+      "path": "skills/engineering/research",
+      "pin": "5863806dd4e15c63174bee4e7515a4256792ecfa",
+      "skipped": []
+    },
+    "retro": {
+      "source": "matt",
+      "path": "skills/engineering/retro",
+      "pin": "5863806dd4e15c63174bee4e7515a4256792ecfa",
+      "skipped": []
+    },
+    "scaffold-exercises": {
+      "source": "matt",
+      "path": "skills/misc/scaffold-exercises",
+      "pin": "5863806dd4e15c63174bee4e7515a4256792ecfa",
+      "skipped": []
+    },
+    "setup-moro-skills": {
+      "source": "matt",
+      "path": "skills/engineering/setup-matt-pocock-skills",
+      "pin": "5863806dd4e15c63174bee4e7515a4256792ecfa",
+      "skipped": []
+    },
+    "setup-pre-commit": {
+      "source": "matt",
+      "path": "skills/misc/setup-pre-commit",
+      "pin": "5863806dd4e15c63174bee4e7515a4256792ecfa",
+      "skipped": []
+    },
+    "setup-ts-deep-modules": {
+      "source": "matt",
+      "path": "skills/in-progress/setup-ts-deep-modules",
+      "pin": "5863806dd4e15c63174bee4e7515a4256792ecfa",
+      "skipped": []
+    },
+    "software-factory": {
+      "source": "matt",
+      "path": "skills/in-progress/software-factory",
+      "pin": "5863806dd4e15c63174bee4e7515a4256792ecfa",
+      "skipped": []
+    },
+    "tdd": {
+      "source": "matt",
+      "path": "skills/engineering/tdd",
+      "pin": "5863806dd4e15c63174bee4e7515a4256792ecfa",
+      "skipped": []
+    },
+    "teach": {
+      "source": "matt",
+      "path": "skills/productivity/teach",
+      "pin": "5863806dd4e15c63174bee4e7515a4256792ecfa",
+      "skipped": []
+    },
+    "to-questionnaire": {
+      "source": "matt",
+      "path": "skills/productivity/to-questionnaire",
+      "pin": "5863806dd4e15c63174bee4e7515a4256792ecfa",
+      "skipped": []
+    },
+    "to-spec": {
+      "source": "matt",
+      "path": "skills/engineering/to-spec",
+      "pin": "5863806dd4e15c63174bee4e7515a4256792ecfa",
+      "skipped": []
+    },
+    "to-tickets": {
+      "source": "matt",
+      "path": "skills/engineering/to-tickets",
+      "pin": "5863806dd4e15c63174bee4e7515a4256792ecfa",
+      "skipped": []
+    },
+    "triage": {
+      "source": "matt",
+      "path": "skills/engineering/triage",
+      "pin": "5863806dd4e15c63174bee4e7515a4256792ecfa",
+      "skipped": []
+    },
+    "wait-what": {
+      "source": "matt",
+      "path": "skills/productivity/wait-what",
+      "pin": "5863806dd4e15c63174bee4e7515a4256792ecfa",
+      "skipped": []
+    },
+    "wayfinder": {
+      "source": "matt",
+      "path": "skills/engineering/wayfinder",
+      "pin": "5863806dd4e15c63174bee4e7515a4256792ecfa",
+      "skipped": []
+    },
+    "wizard": {
+      "source": "matt",
+      "path": "skills/engineering/wizard",
+      "pin": "5863806dd4e15c63174bee4e7515a4256792ecfa",
+      "skipped": []
+    },
+    "writing-beats": {
+      "source": "matt",
+      "path": "skills/in-progress/writing-beats",
+      "pin": "5863806dd4e15c63174bee4e7515a4256792ecfa",
+      "skipped": []
+    },
+    "writing-for-agents": {
+      "source": "matt",
+      "path": "skills/productivity/writing-for-agents",
+      "pin": "5863806dd4e15c63174bee4e7515a4256792ecfa",
+      "skipped": []
+    },
+    "writing-fragments": {
+      "source": "matt",
+      "path": "skills/in-progress/writing-fragments",
+      "pin": "5863806dd4e15c63174bee4e7515a4256792ecfa",
+      "skipped": []
+    },
+    "writing-shape": {
+      "source": "matt",
+      "path": "skills/in-progress/writing-shape",
+      "pin": "5863806dd4e15c63174bee4e7515a4256792ecfa",
+      "skipped": []
+    }
+  },
   "recommended": [],
-  "dependsOn": {}
+  "dependsOn": {
+    "grill-with-docs": [
+      "grilling",
+      "domain-modeling"
+    ],
+    "implement": [
+      "tdd",
+      "code-review"
+    ],
+    "implement-spec": [
+      "tdd",
+      "code-review"
+    ],
+    "improve-codebase-architecture": [
+      "codebase-design",
+      "domain-modeling",
+      "grilling"
+    ],
+    "retro": [
+      "writing-for-agents"
+    ],
+    "tdd": [
+      "codebase-design"
+    ],
+    "triage": [
+      "grilling",
+      "domain-modeling"
+    ],
+    "wayfinder": [
+      "domain-modeling",
+      "grilling",
+      "prototype",
+      "research"
+    ],
+    "setup-ts-deep-modules": [
+      "codebase-design"
+    ],
+    "grill-me": [
+      "grilling"
+    ]
+  }
 }
