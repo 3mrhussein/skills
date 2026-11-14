@@ -24,7 +24,8 @@ Put every question to the owner as a selection, recommended option first, a type
 4. For each pick the report labels `edited here` or `loose`, show `diff -ru <installed copy> <clone copy>` and ask whether the set's copy replaces it (no first).
 5. On a project's first install, ask whether to keep the skills out of git or commit them (keep out first).
 6. Ask which agents the skills go to: `claude-code`, `codex`, `github-copilot` and `antigravity` ticked, `gemini-cli` not. On a rerun, tick the agents the last install named (its `Agents:` line); `moro` keeps those when no agents are passed.
-7. Run `moro install [--user] --pick <skills…> --agents <agents…> [--keep-out | --commit] [--use-set-copy <skills…>]` and relay its closing lines word for word, including any `Removed from <agent>:`, `Not installed:`, `Also at user level:` or `Shadowed at user level:` line and the `Next:` line.
+7. Ask the install method: symlink (first: one copy in `.agents/skills`, linked from each agent's folder) or copy (a full copy in each agent's folder). On a rerun, offer the current one first: copy when `.claude/skills/<skill>` is a real folder, symlink when it's a link. A new method reinstalls every skill.
+8. Run `moro install [--user] --pick <skills…> --agents <agents…> --symlink|--copy [--keep-out | --commit] [--use-set-copy <skills…>]` and relay its closing lines word for word, including any `Removed from <agent>:`, `Not installed:`, `Also at user level:` or `Shadowed at user level:` line and the `Next:` line.
 
 Done when the summary printed `Up to date.` or its `Installed`, `Updated` and `Removed` lines.
 
@@ -82,7 +83,7 @@ Offer **multi-context** (a root `GLOSSARY-MAP.md` pointing to per-context `GLOSS
 
 Show the user a draft of:
 
-- The `## Agent skills` block to add to whichever of `CLAUDE.md` / `AGENTS.md` is being edited (see step 4 for selection rules)
+- The `## Agent skills` block, in the file step 4 picks
 - The contents of `docs/agents/issue-tracker.md`, `docs/agents/domain.md`, and `docs/agents/triage-labels.md` (the last only when `triage` is installed)
 
 Let them edit before writing.
@@ -91,11 +92,13 @@ Let them edit before writing.
 
 **Pick the file to edit:**
 
-- If `CLAUDE.md` exists, edit it.
-- Else if `AGENTS.md` exists, edit it.
-- If neither exists, ask the user which one to create; don't pick for them.
+The agents picked in the install step decide it:
 
-Never create `AGENTS.md` when `CLAUDE.md` already exists (or vice versa); always edit the one that's already there.
+- **Claude Code alone:** `CLAUDE.md`, created when missing.
+- **Any other agent:** `AGENTS.md`, created when missing, since every other agent reads it. When Claude Code is picked too, `CLAUDE.md` holds an `@AGENTS.md` line, which Claude Code follows; add that line, creating `CLAUDE.md` when missing.
+- **A block already in `CLAUDE.md` while `AGENTS.md` is the file:** move the block to `AGENTS.md` and leave `@AGENTS.md` in its place. Keep the rest of `CLAUDE.md` as it is.
+
+When the install step ran at user level, or not at all, use the agents in the latest `Agents:` line `moro install` printed for this project; with none, ask which agents the project's sessions use (Claude Code and the others first).
 
 If an `## Agent skills` block already exists in the chosen file, update its contents in-place rather than appending a duplicate. Don't overwrite user edits to the surrounding sections.
 
