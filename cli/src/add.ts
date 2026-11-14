@@ -152,7 +152,7 @@ function parseArgs(argv: string[]): AddArgs {
 }
 
 /** The clone the device file records, wherever moro runs. */
-function findClone(io: MoroIo): string {
+export function findClone(io: MoroIo): string {
   const clone = readDevice(readLocations(io.env).deviceFile)?.clone;
   if (!clone || !existsSync(join(clone, ".git"))) {
     throw new UserError(
@@ -535,7 +535,7 @@ async function offerPush(io: MoroIo, git: Git, setDir: string, yes: boolean): Pr
 }
 
 /** Commits in the set use the clone's own identity, never the machine's global one. */
-async function requireRepoIdentity(git: Git, setDir: string): Promise<void> {
+export async function requireRepoIdentity(git: Git, setDir: string): Promise<void> {
   const local = (key: string) => git(["config", "--local", key], setDir).catch(() => "");
   if ((await local("user.name")) && (await local("user.email"))) return;
   throw new UserError(
