@@ -1,13 +1,12 @@
 // Seam 2: `./install.sh` run against a temporary clone and home, with a fake `npm`
 // (and fake `node` or `git` where the test is about those checks).
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { expect, test } from "vitest";
 import { createWorld, skillMd, type World } from "./world.js";
 
 const INSTALL_SH = readFileSync(new URL("../../install.sh", import.meta.url), "utf8");
-const NODE_DIR = dirname(process.execPath);
 const SYSTEM = "/usr/bin:/bin";
 
 function script(path: string, body: string): void {
@@ -40,7 +39,11 @@ case "$1" in
   prefix) echo "${join(world.root, "global")}" ;;
 esac`,
   );
-  return { world, bin, log, path: `${bin}:${NODE_DIR}:${SYSTEM}` };
+  // Only node itself from its folder: a `moro` that `npm link` put there must not stand in for the fake one.
+  const nodeBin = join(world.root, "node-bin");
+  mkdirSync(nodeBin);
+  symlinkSync(process.execPath, join(nodeBin, "node"));
+  return { world, bin, log, path: `${bin}:${nodeBin}:${SYSTEM}` };
 }
 
 function install(world: World, path: string, args: string[] = []) {
