@@ -4,6 +4,7 @@ import { type Env, readLocations } from "./locations.js";
 import { bootstrap } from "./bootstrap.js";
 import { install } from "./install.js";
 import { readDevice } from "./device.js";
+import { sync } from "./sync.js";
 import { UserError } from "./user-error.js";
 import { MORO_VERSION } from "./version.js";
 
@@ -43,6 +44,9 @@ async function run(io: MoroIo): Promise<number> {
     case "install":
       requireDevice(io);
       return install(io, args);
+    case "sync":
+      requireDevice(io);
+      return sync(io, args);
     case "bootstrap":
       return bootstrap(io, args);
     case "--version":
