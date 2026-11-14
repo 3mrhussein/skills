@@ -6,7 +6,7 @@ test("moro --version prints the package version", async () => {
 
   const result = await world.run(["--version"]);
 
-  expect(result).toMatchObject({ code: 0, stdout: "0.1.0\n" });
+  expect(result).toMatchObject({ code: 0, stdout: "0.2.0\n" });
 });
 
 test("an unknown command fails and says what to run instead", async () => {
