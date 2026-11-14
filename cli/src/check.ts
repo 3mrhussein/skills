@@ -124,15 +124,14 @@ export function checkWorkflow(skills: CheckedSkill[], manifest: Partial<Manifest
   const calls: Record<string, string[]> = {};
 
   for (const skill of skills) {
-    const called = new Set<string>();
-    for (const sentence of skill.text.match(/\bcall(?:s|ing)? the Skill tool[^.\n]*/gi) ?? []) {
-      for (const [, name] of sentence.matchAll(/["`]([a-z0-9-]+)["`]/g)) if (name !== skill.name) called.add(name!);
-    }
+    const { invoked, read } = callsIn(skill, skill.name === ROUTER);
+    const called = new Set([...invoked, ...read]);
     calls[skill.name] = [...called];
     for (const callee of called) {
       const target = byName.get(callee);
       if (!target) add("missing", skill.name, callee, `${skill.name} calls "${callee}", which isn't in ${where}.`);
-      else if (userInvoked(target.text)) {
+      // Reading a skill's file works whatever its invocation setting.
+      else if (invoked.has(callee) && userInvoked(target.text)) {
         add("user-invoked", skill.name, callee, `${skill.name} calls "${callee}", which is user-invoked (disable-model-invocation: true), so no skill can call it.`);
       }
       if (manifest && !(manifest.dependsOn?.[skill.name] ?? []).includes(callee)) {
@@ -165,6 +164,30 @@ export function checkWorkflow(skills: CheckedSkill[], manifest: Partial<Manifest
 
   findings.sort((a, b) => FINDING_ORDER.indexOf(a.kind) - FINDING_ORDER.indexOf(b.kind));
   return { calls, findings };
+}
+
+/**
+ * The skills a skill's text calls, in the order it names them. Invoked: a Skill-tool sentence naming each
+ * skill in double quotes or backticks (Matt's convention), or a sentence that tells the agent to run, use,
+ * load or follow a `/skill`, never one about what the user or owner runs. Read: a `../<skill>/SKILL.md` path.
+ * The router names skills for the owner, so only its Skill-tool sentences count.
+ */
+function callsIn(skill: CheckedSkill, router: boolean): { invoked: Set<string>; read: Set<string> } {
+  const invoked = new Set<string>();
+  const read = new Set<string>();
+  const keep = (into: Set<string>, name: string | undefined) => name && name !== skill.name && into.add(name);
+  for (const sentence of skill.text.match(/\bcall(?:s|ing)? the Skill tool[^.\n]*/gi) ?? []) {
+    for (const [, name] of sentence.matchAll(/["`]([a-z0-9-]+)["`]/g)) keep(invoked, name);
+  }
+  if (!router) {
+    for (const sentence of skill.text.split(/(?<=[.!?])\s+|\n/)) {
+      const bare = sentence.replace(/^[\s\-*>#\d.]*/, "").replace(/^\*\*/, "");
+      if (!/^(run|use|load|follow|invoke|start)\b/i.test(bare) || /\b(user|owner|human)s?\b/i.test(bare)) continue;
+      for (const [, name] of bare.matchAll(/(?<![\w/.-])\/([a-z0-9-]+)\b/g)) keep(invoked, name);
+    }
+  }
+  for (const [, name] of skill.text.matchAll(/\.\.\/([a-z0-9-]+)\/SKILL\.md/g)) keep(read, name);
+  return { invoked, read };
 }
 
 function userInvoked(text: string): boolean {

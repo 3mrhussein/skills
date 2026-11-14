@@ -344,6 +344,15 @@
       "grilling",
       "prototype",
       "research"
+    ],
+    "loop-me": [
+      "grilling"
+    ],
+    "chief-of-staff": [
+      "retro",
+      "to-spec",
+      "to-tickets",
+      "implement-spec"
     ]
   }
 }

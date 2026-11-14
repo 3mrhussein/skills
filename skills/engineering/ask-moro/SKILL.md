@@ -47,7 +47,7 @@ A starting situation that generates work, then merges onto the main flow.
 
   Triage is only for issues **you didn't create**: bug reports, incoming feature requests, anything that arrives raw. Tickets that `/to-tickets` produced are already agent-ready, so **don't triage them**.
 
-- **Something's broken** → **`/diagnosing-bugs`**. For the hard ones: the bug that resists a first glance, the intermittent flake, the regression that crept in between two known-good states. It refuses to theorise until it has a **tight feedback loop** (one command that already goes red on *this* bug), then fixes with a regression test. Once the fix is in, run **`/retro`** in the same session to ask what would have prevented the bug; where the real finding is that there's no good seam to lock it down, that's a job for **`/improve-codebase-architecture`**.
+- **Something's broken** → **`/diagnosing-bugs`**. For the hard ones: the bug that resists a first glance, the intermittent flake, the regression that crept in between two known-good states. It refuses to theorise until it has a **tight feedback loop** (one command that already goes red on *this* bug), then fixes with a regression test. Once the fix is in, run **`/retro`** in the same session to ask what would have prevented the bug; where the real finding is that there's no good seam to lock it down, that's a job for **`/improve-codebase-architecture`**. To keep what the session taught you, run **`/debugging-playbook`**: it turns the session into a teaching playbook.
 
 - **A huge, foggy effort: a greenfield project or a huge feature build, too big for one session** → **`/wayfinder`**, the most cognitively demanding flow here. When the way from here to the destination isn't visible yet, it charts a **shared map** of **decision tickets** on the issue tracker and resolves them one at a time, producing **decisions, not deliverables**, until the fog is pushed back and the way is clear. Where **`/grill-with-docs`** sharpens an idea you can hold in one session, wayfinder is for the idea you can't, and it's slower and denser, so save it for exactly that, never a well-scoped feature.
 
@@ -98,9 +98,9 @@ Off the main flow entirely.
 
 ## The set
 
-These skills come from moro's set: a clone of `3mrhussein/skills` on this device, installed one project at a time. Jobs on the set itself:
+These skills come from moro's set: a clone of `3mrhussein/skills` on this device, installed into a project or at user level for every project. Jobs on the set itself:
 
-- **Set up a project, or catch it up with the set** → **`/setup-moro-skills`**. It runs `moro install`, then the repo setup above.
+- **Set up a project or user level, or catch it up with the set** → **`/setup-moro-skills`**. It runs `moro install` (with `--user` for user level), then the repo setup above.
 - **Bring in a skill from another repo, take upstream changes, or try a change before it reaches the set** → **`manage-moro-skills`**, in the set's clone. It drives `moro add`, `moro sync` and `moro try`.
 - **Where does this skill stand?** (its source, the set's copy, this project's copy) → **`moro audit`**, which `manage-moro-skills` explains.
 - **Where does this project or device stand, and what's next?** → **`moro`**, with no arguments.

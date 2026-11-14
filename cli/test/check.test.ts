@@ -201,3 +201,29 @@ test("check reads local-only skills too, and a trial worktree's own manifest", a
   expect(tried.stdout).toContain(`Workflow check of the set at ${trial}: 2 skills.`);
   expect(tried.stdout).toContain('tdd calls "codebase-design", but dependsOn.tdd doesn\'t list it.');
 });
+
+test("a /skill the text tells the agent to run, and a ../skill/SKILL.md it reads, are calls; a /skill for the owner to run isn't", async () => {
+  const { world } = setWith({
+    "manifest.json": manifest({ dependsOn: { "loop-me": ["grilling"] } }),
+    "skills/in-progress/loop-me/SKILL.md": skill("loop-me", "Run a stateful `/grilling` session whose only output is specs."),
+    "skills/in-progress/chief/SKILL.md": skill(
+      "chief",
+      "- **Retro** (`../retro/SKILL.md`): run a retro now and then.\n- Write a spec with `../to-spec/SKILL.md`.\n\nIf not, tell the user to run `/setup-moro-skills`. Used by `/loop-me`.",
+    ),
+    "skills/engineering/grilling/SKILL.md": skill("grilling"),
+    "skills/engineering/retro/SKILL.md": skill("retro", "Look back.", { userInvoked: true }),
+    "skills/engineering/to-spec/SKILL.md": skill("to-spec"),
+    "skills/engineering/setup-moro-skills/SKILL.md": skill("setup-moro-skills", "Set up.", { userInvoked: true }),
+  });
+
+  const result = await world.run(["check"]);
+
+  expect(result.stdout).toContain("  loop-me -> grilling\n");
+  expect(result.stdout).toContain("  chief -> retro, to-spec\n");
+  expect(result.stdout).toContain('\n  chief calls "retro", but dependsOn.chief doesn\'t list it.\n');
+  expect(result.stdout).toContain('\n  chief calls "to-spec", but dependsOn.chief doesn\'t list it.\n');
+  // Reading a skill's file works whatever its invocation setting, and the owner's /skills aren't calls.
+  expect(result.stdout).not.toContain("user-invoked");
+  expect(result.stdout).not.toContain("setup-moro-skills");
+  expect(result.stdout).not.toContain('calls "loop-me"');
+});
