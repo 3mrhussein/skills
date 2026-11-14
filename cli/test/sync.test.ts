@@ -365,3 +365,23 @@ test("sync works from any folder and names skills it doesn't know", async () => 
   expect(result.code).toBe(1);
   expect(result.stderr).toContain("nope is not an upstream skill");
 });
+
+test("a re-render blocked by uncommitted changes names bare `moro sync` as the rerun", async () => {
+  const world = createWorld();
+  const source = world.source("acme/tools", { "skills/hello/SKILL.md": `${skillMd("hello")}Ask Acme.\n` });
+  const clone = world.cloneSet();
+  world.recordClone(clone);
+  expect((await world.run(["add", source.url, "hello", "--yes"], { cwd: clone })).code).toBe(0);
+  const manifest = readManifest(clone);
+  manifest.sources.tools.rename = [["Acme", "Moro"]];
+  writeFileSync(join(clone, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+  world.git(["commit", "-qam", "new rule"], clone);
+  const file = join(clone, "skills/misc/hello/SKILL.md");
+  writeFileSync(file, `Mine.\n${readFileSync(file, "utf8")}`);
+
+  const result = await world.run(["sync"]);
+
+  expect(result.code).toBe(1);
+  expect(result.stderr).toContain("Next: commit or discard them, then rerun `moro sync`.");
+  expect(readFileSync(file, "utf8")).toBe(`Mine.\n${skillMd("hello")}Ask Acme.\n`);
+});

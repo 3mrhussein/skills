@@ -559,7 +559,7 @@ async function rerender(io: MoroIo, git: Git, setDir: string, manifest: Manifest
         results.push({ folder, files: merged.files });
       }
       await requireRepoIdentity(git, setDir);
-      await requireCommitted(git, setDir, folders, "sync", held);
+      await requireCommitted(git, setDir, folders, "", held);
       const paths = [...folders, MANIFEST_FILE];
       try {
         for (const { folder, files } of results) replaceFolder(join(setDir, folder), files);
@@ -848,7 +848,7 @@ async function requireCommitted(git: Git, setDir: string, folders: string[], act
   const clean = foldersClean && (await manifestCommitted(git, setDir, held));
   if (clean) return;
   throw new UserError(
-    `${[...folders, MANIFEST_FILE].join(" and ")} have uncommitted changes, and a decision makes one commit of its own. Nothing was changed.\n\nNext: commit or discard them, then rerun \`moro sync ${action}\`.`,
+    `${[...folders, MANIFEST_FILE].join(" and ")} have uncommitted changes, and a decision makes one commit of its own. Nothing was changed.\n\nNext: commit or discard them, then rerun \`${["moro sync", action].filter(Boolean).join(" ")}\`.`,
   );
 }
 
