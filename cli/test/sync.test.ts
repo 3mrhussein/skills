@@ -126,6 +126,30 @@ test("a conflicting accept leaves diff3 markers, moves the pin and holds the com
   expect(world.git(["status", "--porcelain"], clone)).toBe("");
 });
 
+test("a held conflict doesn't block deciding other skills, and each commit leaves the held pin out", async () => {
+  const { world, source, clone } = await setWithTools();
+  source.commit({ "skills/hello/SKILL.md": skillMd("hello").replace("The hello skill.", "Upstream wording.") });
+  const otherHead = source.commit({ "skills/other/extra.md": "extra\n" });
+  const pin = readManifest(clone).skills.hello.pin;
+  const file = join(clone, "skills/misc/hello/SKILL.md");
+  writeFileSync(file, skillMd("hello").replace("The hello skill.", "My wording."));
+  world.git(["commit", "-qam", "my edit"], clone);
+  expect((await world.run(["sync", "accept", "hello"])).code).toBe(1);
+
+  const other = await world.run(["sync", "accept", "other"]);
+
+  expect(other.code, other.stderr).toBe(0);
+  expect(logOf(world, clone)[0]).toBe(`${SET_IDENTITY}|sync: accept other`);
+  expect(JSON.parse(world.git(["show", "HEAD:manifest.json"], clone)).skills).toMatchObject({ hello: { pin }, other: { pin: otherHead } });
+  expect(readManifest(clone).skills.hello.pin).toBe(otherHead);
+  expect(markers(readFileSync(file, "utf8"))).toBe(true);
+
+  writeFileSync(file, skillMd("hello").replace("The hello skill.", "Both wordings."));
+  expect((await world.run(["sync", "accept", "hello"])).code).toBe(0);
+  expect(JSON.parse(world.git(["show", "HEAD:manifest.json"], clone)).skills.hello.pin).toBe(otherHead);
+  expect(world.git(["status", "--porcelain"], clone)).toBe("");
+});
+
 test("show flags a conflict on accept", async () => {
   const { world, source, clone } = await setWithTools();
   source.commit({ "skills/hello/SKILL.md": skillMd("hello").replace("The hello skill.", "Upstream wording.") });
@@ -134,19 +158,27 @@ test("show flags a conflict on accept", async () => {
   expect((await world.run(["sync", "show", "hello"])).stdout).toContain("Accept would conflict in: SKILL.md");
 });
 
-test("a pure move updates the path without asking and keeps the set's folder", async () => {
+test("status lists a pure move and changes nothing; a decision or interactive sync then follows it without asking", async () => {
   const { world, source, clone } = await setWithTools();
   const head = source.commit({ "skills/engineering/hello/SKILL.md": skillMd("hello") }, "Move hello", ["skills/hello"]);
   const before = world.git(["rev-parse", "HEAD:skills/misc/hello"], clone);
+  const commits = world.git(["rev-list", "--count", "HEAD"], clone);
 
-  const result = await world.run(["sync", "status"]);
+  const status = await world.run(["sync", "status"]);
+
+  expect(status.code, status.stderr).toBe(0);
+  expect(status.stdout).toContain("hello: moved, no change to the files");
+  expect(world.git(["rev-list", "--count", "HEAD"], clone)).toBe(commits);
+  expect(world.git(["status", "--porcelain"], clone)).toBe("");
+
+  const result = await world.run(["sync"]);
 
   expect(result.code, result.stderr).toBe(0);
   expect(result.stdout).toContain("Up to date.");
   expect(readManifest(clone).skills.hello).toMatchObject({ path: "skills/engineering/hello", pin: head });
   expect(world.git(["rev-parse", "HEAD:skills/misc/hello"], clone)).toBe(before);
   expect(world.git(["status", "--porcelain"], clone)).toBe("");
-  expect(logOf(world, clone)[0]).toContain("sync: ");
+  expect(logOf(world, clone)[0]).toBe(`${SET_IDENTITY}|sync: follow move of hello`);
 });
 
 test("a move with changes follows the skill by its upstream name and show flags the move", async () => {
@@ -302,8 +334,14 @@ test("changing a source's rename rules re-renders its skills at the same pin wit
   manifest.sources.tools.rename = [["Acme", "Moro"]];
   writeFileSync(join(clone, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
   world.git(["commit", "-qam", "new rule"], clone);
+  const headBefore = world.git(["rev-parse", "HEAD"], clone);
 
-  const result = await world.run(["sync", "status"]);
+  const status = await world.run(["sync", "status"]);
+  expect(status.code, status.stderr).toBe(0);
+  expect(status.stdout).toContain("tools: rename rules changed");
+  expect(world.git(["rev-parse", "HEAD"], clone)).toBe(headBefore);
+
+  const result = await world.run(["sync"]);
 
   expect(result.code, result.stderr).toBe(0);
   expect(result.stdout).toContain("Up to date.");
@@ -317,7 +355,7 @@ test("changing a source's rename rules re-renders its skills at the same pin wit
   expect(shown.stdout).toContain("Hand edits: SKILL.md");
   expect(shown.stdout).toContain("+Moro more.");
   const commits = world.git(["rev-list", "--count", "HEAD"], clone);
-  await world.run(["sync", "status"]);
+  await world.run(["sync"], { answers: ["later"] });
   expect(world.git(["rev-list", "--count", "HEAD"], clone)).toBe(commits);
 });
 

@@ -333,7 +333,7 @@ test.each([
   expect(world.git(["status", "--porcelain"], clone)).toBe("");
 });
 
-test("declining the push leaves the commit in the clone and says no machine sees it yet", async () => {
+test("declining the push leaves the commit in the clone and says no device sees it yet", async () => {
   const world = createWorld();
   world.source("acme/tools", { "skills/hello/SKILL.md": skillMd("hello") });
   const clone = world.cloneSet();
@@ -346,7 +346,7 @@ test("declining the push leaves the commit in the clone and says no machine sees
   expect(remoteHead(world)).toBe(before);
   expect(subjects(world, clone)[0]).toBe(`${SET_IDENTITY}|add: tools hello`);
   expect(result.stdout).toContain(
-    "Added hello from tools in one commit.\nNot pushed: no machine sees this until you push.\n\nNext: run `git push` in the set's clone.\n",
+    "Added hello from tools in one commit.\nNot pushed: no device sees this until you push.\n\nNext: run `git push` in the set's clone.\n",
   );
 });
 

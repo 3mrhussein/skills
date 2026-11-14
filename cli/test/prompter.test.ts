@@ -101,7 +101,7 @@ test("a multi-select asks again for anything but numbers it listed", async () =>
 });
 
 const preselected: MultiSelectRequest = {
-  message: "Which of the set's skills should this machine have?",
+  message: "Which of the set's skills should this device have?",
   choices: [
     { value: "alpha", label: "alpha", picked: true },
     { value: "beta", label: "beta" },
@@ -115,7 +115,7 @@ test("a multi-select with preselected choices ticks them, and Enter keeps them",
   expect(await prompter.multiSelect(preselected)).toEqual(["alpha", "gamma"]);
   expect(shown()).toContain(
     [
-      "Which of the set's skills should this machine have?",
+      "Which of the set's skills should this device have?",
       "  1. [x] alpha",
       "  2. [ ] beta",
       "  3. [x] gamma",

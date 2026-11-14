@@ -40,9 +40,21 @@ test("a clean change defaults to accept, then asks to push and says what to do n
   expect(result.stdout).toMatch(/Pushed\.\n\nNext: run \/setup-moro-skills in each project that should get them\.\n$/);
 });
 
-test("a skill with hand edits has no default, show prints the diff and asks again, later brings it back next time", async () => {
+test("a change that merges cleanly past a hand edit in another file still defaults to accept", async () => {
   const { world, source, clone } = await setWithTools();
   source.commit({ "skills/hello/extra.md": "extra\n" }, "Add extra");
+  edit(world, clone, "hello", "My wording.");
+
+  const result = await world.run(["sync"], { answers: ["accept", "no"] });
+
+  expect(result.code, result.stderr).toBe(0);
+  expect(result.prompts[0]).toMatchObject({ recommended: "accept" });
+  expect(subject(world, clone)).toBe("sync: accept hello");
+});
+
+test("a change that touches a hand-edited file has no default, lists later and skip before accept, show prints the diff, later brings it back", async () => {
+  const { world, source, clone } = await setWithTools();
+  source.commit({ "skills/hello/SKILL.md": `${skillMd("hello")}Upstream line.\n` }, "Add a line");
   edit(world, clone, "hello", "My wording.");
   const commits = world.git(["rev-list", "--count", "HEAD"], clone);
 
@@ -50,13 +62,14 @@ test("a skill with hand edits has no default, show prints the diff and asks agai
 
   expect(result.code, result.stderr).toBe(0);
   expect(result.prompts[0]).not.toHaveProperty("recommended");
+  expect(result.prompts[0]!.choices.map((choice) => choice.value)).toEqual(["later", "skip", "accept", "show"]);
   expect(result.prompts).toHaveLength(2);
-  expect(result.stdout).toContain("+extra");
+  expect(result.stdout).toContain("+Upstream line.");
   expect(result.stdout).toContain("Coming back next time: hello.");
   expect(world.git(["rev-list", "--count", "HEAD"], clone)).toBe(commits);
 });
 
-test("skip is committed, and declining the push says no machine sees it yet", async () => {
+test("skip is committed, and declining the push says no device sees it yet", async () => {
   const { world, source, clone } = await setWithTools();
   source.commit({ "skills/hello/extra.md": "extra\n" }, "Add extra");
 
@@ -66,21 +79,49 @@ test("skip is committed, and declining the push says no machine sees it yet", as
   expect(subject(world, clone)).toBe("sync: skip hello");
   expect(subject(world, world.set.bare)).not.toBe("sync: skip hello");
   expect(result.stdout).toContain("Skipped: hello.");
-  expect(result.stdout).toContain("Not pushed: no machine sees this until you push.");
+  expect(result.stdout).toContain("Not pushed: no device sees this until you push.");
 });
 
-test("a conflict is reported with how to resolve the markers, and the rest comes back next time", async () => {
+test("a conflict is reported with how to resolve the markers, and the other skills are still decided", async () => {
   const { world, source, clone } = await setWithTools();
   source.commit({ "skills/hello/SKILL.md": wording("hello", "Upstream wording.") });
   source.commit({ "skills/other/extra.md": "extra\n" });
   edit(world, clone, "hello", "My wording.");
 
-  const result = await world.run(["sync"], { answers: ["accept"] });
+  const result = await world.run(["sync"], { answers: ["accept", "accept", "no"] });
 
   expect(result.code).toBe(1);
   expect(readFileSync(join(clone, "skills/misc/hello/SKILL.md"), "utf8")).toContain("<<<<<<< ");
   expect(result.stdout).toContain("Conflict in SKILL.md of hello");
   expect(result.stdout).toContain("moro sync accept hello");
+  expect(result.stdout).toContain("Accepted: other.");
+  expect(subject(world, clone)).toBe("sync: accept other");
+});
+
+test("a held conflict from an earlier run is reported and the other skills are still decided", async () => {
+  const { world, source, clone } = await setWithTools();
+  source.commit({ "skills/hello/SKILL.md": wording("hello", "Upstream wording.") });
+  edit(world, clone, "hello", "My wording.");
+  expect((await world.run(["sync", "accept", "hello"])).code).toBe(1);
+  source.commit({ "skills/other/extra.md": "extra\n" });
+
+  const result = await world.run(["sync"], { answers: ["accept", "no"] });
+
+  expect(result.code).toBe(1);
+  expect(result.stdout).toContain("hello is accepted but waiting for its conflict markers to be resolved");
+  expect(result.stdout).toContain("Accepted: other.");
+});
+
+test("a conflict is reported, with the rest still coming back when it is left for later", async () => {
+  const { world, source, clone } = await setWithTools();
+  source.commit({ "skills/hello/SKILL.md": wording("hello", "Upstream wording.") });
+  source.commit({ "skills/other/extra.md": "extra\n" });
+  edit(world, clone, "hello", "My wording.");
+
+  const result = await world.run(["sync"], { answers: ["accept", "later"] });
+
+  expect(result.code).toBe(1);
+  expect(result.stdout).toContain("Conflict in SKILL.md of hello");
   expect(result.stdout).toContain("Coming back next time: other.");
 });
 

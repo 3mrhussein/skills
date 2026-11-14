@@ -16,5 +16,5 @@ test("an unknown command fails and says what to run instead", async () => {
 
   expect(result.code).toBe(1);
   expect(result.stderr).toContain("Unknown command: frobnicate");
-  expect(result.stderr).toContain("Next: run `moro` to see this machine's state");
+  expect(result.stderr).toContain("Next: run `moro` to see this device's state");
 });

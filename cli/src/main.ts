@@ -54,7 +54,7 @@ async function run(io: MoroIo): Promise<number> {
       io.stdout.write(`${MORO_VERSION}\n`);
       return 0;
     default:
-      io.stderr.write(`Unknown command: ${command}\n\nNext: run \`moro\` to see this machine's state\n`);
+      io.stderr.write(`Unknown command: ${command}\n\nNext: run \`moro\` to see this device's state\n`);
       return 1;
   }
 }

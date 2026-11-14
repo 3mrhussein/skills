@@ -1,4 +1,4 @@
-// The `skills` CLI's lock: what one machine has installed, and from where.
+// The `skills` CLI's lock: what one device has installed, and from where.
 import { readFileSync } from "node:fs";
 
 export interface LockEntry {

@@ -77,6 +77,8 @@ interface Pending {
   ours: SkillFile[];
   /** Upstream commits touching the skill since the pin, merges left out, oldest first. */
   commits: { sha: string; subject: string }[];
+  /** Paths where the latest upstream differs from the pin, rendered. */
+  upstreamChanges: string[];
   /** Paths where the set's copy differs from the pin, rendered: the hand edits. */
   handEdits: string[];
   /** New upstream lines that still name Matt after the rename rules. */
@@ -93,7 +95,7 @@ async function fetchSource(git: Git, manifest: Manifest, id: string): Promise<Ch
   return checkout(git, cloneUrl(source.repo), undefined).catch((error: unknown) => {
     if (error instanceof GitError) {
       throw new UnreachableError(
-        `Can't reach ${id} (${source.repo}): ${error.stderr.trim()}\n\nNext: check that this machine can read the repo, then rerun.`,
+        `Can't reach ${id} (${source.repo}): ${error.stderr.trim()}\n\nNext: check that this device can read the repo, then rerun.`,
       );
     }
     throw error;
@@ -117,7 +119,8 @@ async function inspect(git: Git, setDir: string, manifest: Manifest, source: Che
   const theirs = headPath === undefined ? [] : render(readSkillFiles(join(source.dir, headPath)), rules, key);
   const removed = headPath === undefined;
   const moved = headPath !== undefined && headPath !== entry.path;
-  const changed = differing(base, theirs).length > 0;
+  const upstreamChanges = differing(base, theirs);
+  const changed = upstreamChanges.length > 0;
   if (!removed && !moved && !changed) return undefined;
   const ours = readSkillFiles(join(setDir, folder));
   const log = await git(
@@ -145,6 +148,7 @@ async function inspect(git: Git, setDir: string, manifest: Manifest, source: Che
     theirs,
     ours,
     commits,
+    upstreamChanges,
     handEdits: differing(base, ours),
     mentions: newMentions(base, theirs),
   };
@@ -183,7 +187,7 @@ interface Pendings {
   /** Source ids that couldn't be reached, with why; their skills are left undecided. */
   unreachable: Map<string, string>;
   /** Skills in the sources that the set doesn't hold: an FYI, never added. */
-  fresh: { source: string; name: string; path: string }[];
+  newUpstream: { source: string; name: string; path: string }[];
 }
 
 /**
@@ -214,11 +218,11 @@ async function pendingSkills(git: Git, setDir: string, manifest: Manifest, only?
     release(fetches);
     throw error;
   }
-  const fresh = only ? [] : newSkills(manifest, fetches, pending);
-  return { fetches, pending, unreachable, fresh };
+  const newUpstream = only ? [] : newUpstreamSkills(manifest, fetches, pending);
+  return { fetches, pending, unreachable, newUpstream };
 }
 
-function newSkills(manifest: Manifest, fetches: Fetches, pending: Pending[]): Pendings["fresh"] {
+function newUpstreamSkills(manifest: Manifest, fetches: Fetches, pending: Pending[]): Pendings["newUpstream"] {
   return [...fetches].flatMap(([id, source]) => {
     const tracked = new Set(
       Object.entries(manifest.skills)
@@ -235,48 +239,60 @@ function release(fetches: Fetches): void {
   for (const source of fetches.values()) source.remove();
 }
 
+/** The manifest HEAD holds, read without trusting it; undefined when there is none. */
+async function committedManifest(git: Git, setDir: string): Promise<Partial<Manifest> | undefined> {
+  const committed = await git(["show", `HEAD:${MANIFEST_FILE}`], setDir).catch(() => undefined);
+  return committed ? (JSON.parse(committed) as Partial<Manifest>) : undefined;
+}
+
 /** Keys whose accept moved the pin but isn't committed yet: conflict markers wait to be resolved. */
 async function heldKeys(git: Git, setDir: string, manifest: Manifest): Promise<string[]> {
-  const committed = await git(["show", `HEAD:${MANIFEST_FILE}`], setDir).catch(() => undefined);
-  if (!committed) return [];
-  const skills = (JSON.parse(committed) as Partial<Manifest>).skills ?? {};
+  const skills = (await committedManifest(git, setDir))?.skills;
+  if (!skills) return [];
   return Object.keys(manifest.skills).filter((key) => skills[key] && skills[key]!.pin !== manifest.skills[key]!.pin);
 }
 
+/** What says that a skill's accept waits for its markers. */
+const heldLine = (key: string) => `${key} is accepted but waiting for its conflict markers to be resolved`;
+
+/** Lines for the skills in the sources that the set doesn't hold, none when there are none. */
+function newUpstreamLines(found: Pendings): string[] {
+  return found.newUpstream.length === 0
+    ? []
+    : ["New upstream skills, not added:", ...found.newUpstream.map(({ source, name, path }) => `  ${source}: ${name} (${path})`)];
+}
+
+/** Tells on stderr which sources couldn't be reached; true when there were any. */
+function reportUnreachable(io: MoroIo, found: Pendings): boolean {
+  for (const message of found.unreachable.values()) io.stderr.write(`${message.split("\n\n")[0]}. Its skills are left undecided.\n`);
+  return found.unreachable.size > 0;
+}
+
+/** `moro sync status`: read-only. It lists what a decision or `moro sync` would do, and changes nothing. */
 async function status(io: MoroIo, git: Git, setDir: string, manifest: Manifest): Promise<number> {
-  await rerender(io, git, setDir, manifest);
   const held = await heldKeys(git, setDir, manifest);
+  const reRendered = await sourcesWithNewRules(git, setDir, manifest);
   const found = await pendingSkills(git, setDir, manifest);
   try {
-    const pending = await followMoves(io, git, setDir, manifest, found.pending);
+    const pending = found.pending.filter((skill) => !held.includes(skill.key));
     const lines = [
-      ...held.map((key) => `${key}: accept waits for its conflict markers to be resolved`),
-      ...pending.map((skill) => {
-        const count = `${skill.commits.length} commit${skill.commits.length === 1 ? "" : "s"}`;
-        const flags = [
-          skill.removed ? "removed upstream" : count,
-          ...(skill.moved ? ["moved"] : []),
-          ...(skill.handEdits.length > 0 ? ["hand edits"] : []),
-          ...(skill.mentions.length > 0 ? ["new lines naming Matt"] : []),
-        ];
-        return `${skill.key}: ${flags.join(", ")}`;
-      }),
+      ...held.map(heldLine),
+      ...reRendered.map((id) => `${id}: rename rules changed, so a decision or \`moro sync\` re-renders its skills`),
+      ...pending.map((skill) => skillLine(skill)),
     ];
-    const out: string[] = [];
-    if (lines.length > 0) out.push(...lines);
-    else if (found.unreachable.size === 0) out.push("Up to date.");
-    if (found.fresh.length > 0) {
-      out.push("", "New upstream skills, not added:", ...found.fresh.map(({ source, name, path }) => `  ${source}: ${name} (${path})`));
-    }
-    const first = held[0] ?? pending[0]?.key;
+    const out = lines.length > 0 ? [...lines] : found.unreachable.size === 0 ? [UP_TO_DATE] : [];
+    const news = newUpstreamLines(found);
+    if (news.length > 0) out.push("", ...news);
+    const first = pending.find((skill) => !skill.pure)?.key;
     if (held.length > 0) {
       out.push("", `Next: resolve the conflict markers, then run \`moro sync accept ${held[0]}\`.`);
     } else if (first) {
       out.push("", `Next: run \`moro sync show ${first}\`, then \`moro sync accept ${first}\` or \`moro sync skip ${first}\`.`);
+    } else if (lines.length > 0) {
+      out.push("", "Next: run `moro sync`.");
     }
     io.stdout.write(`${out.join("\n")}\n`);
-    for (const message of found.unreachable.values()) io.stderr.write(`${message.split("\n\n")[0]}. Its skills are left undecided.\n`);
-    return found.unreachable.size > 0 ? 1 : 0;
+    return reportUnreachable(io, found) ? 1 : 0;
   } finally {
     release(found.fetches);
   }
@@ -287,37 +303,31 @@ async function interactive(io: MoroIo, git: Git, setDir: string, manifest: Manif
   await requireRepoIdentity(git, setDir);
   await rerender(io, git, setDir, manifest);
   const held = await heldKeys(git, setDir, manifest);
-  if (held.length > 0) {
-    throw new UserError(
-      `${held.join(", ")} ${held.length === 1 ? "is" : "are"} accepted but waiting for conflict markers to be resolved, so nothing else can be decided. Nothing was changed.\n\nNext: resolve the markers, then run \`moro sync accept ${held[0]}\`.`,
-    );
-  }
   const found = await pendingSkills(git, setDir, manifest);
   try {
-    const pending = await followMoves(io, git, setDir, manifest, found.pending);
+    const pending = (await followMoves(io, git, setDir, manifest, found.pending)).filter((skill) => !held.includes(skill.key));
     const accepted: string[] = [];
     const skipped: string[] = [];
     const later: string[] = [];
-    const conflicts: string[] = [];
-    let stoppedAt: string | undefined;
+    const conflicted: { key: string; files: string[] }[] = [];
     for (const [index, skill] of pending.entries()) {
-      if (stoppedAt) {
-        later.push(skill.key);
-        continue;
-      }
       const merged = skill.removed ? undefined : await mergeSkill(git, skill);
-      const clean = !skill.removed && merged!.conflicts.length === 0 && skill.handEdits.length === 0 && skill.mentions.length === 0;
+      const conflicts = merged?.conflicts ?? [];
+      // Accept is the safe default when it merges cleanly and leaves every hand edit alone.
+      const clean = !skill.removed && conflicts.length === 0 && !skill.handEdits.some((path) => skill.upstreamChanges.includes(path));
       let choice: string = clean ? "accept" : "later";
       if (!yes) {
         for (;;) {
+          const choices = [
+            { value: "accept", label: "Accept: take the upstream changes" },
+            { value: "skip", label: "Skip: keep the copy as it is and never ask about these changes" },
+            { value: "later", label: "Later: decide next time" },
+            { value: "show", label: "Show the diff" },
+          ];
           const answer = await io.prompter.select({
-            message: `${skillLine(skill, merged?.conflicts ?? [])} (${index + 1} of ${pending.length})\nWhat should happen to ${skill.key}?`,
-            choices: [
-              { value: "accept", label: "Accept: take the upstream changes" },
-              { value: "skip", label: "Skip: keep the copy as it is and never ask about these changes" },
-              { value: "later", label: "Later: decide next time" },
-              { value: "show", label: "Show the diff" },
-            ],
+            message: `${skillLine(skill, conflicts)} (${index + 1} of ${pending.length})\nWhat should happen to ${skill.key}?`,
+            // With no safe default, the cautious answers come first.
+            choices: clean ? choices : [choices[2]!, choices[1]!, choices[0]!, choices[3]!],
             ...(clean ? { recommended: "accept" } : {}),
           });
           choice = "value" in answer ? answer.value : "later";
@@ -329,35 +339,36 @@ async function interactive(io: MoroIo, git: Git, setDir: string, manifest: Manif
         later.push(skill.key);
         continue;
       }
-      const code = await decide(io, git, setDir, manifest, skill.key, choice as "accept" | "skip", { conflicts });
-      if (code !== 0) stoppedAt = skill.key;
+      const files: string[] = [];
+      const code = await decide(io, git, setDir, manifest, skill.key, choice as "accept" | "skip", { conflicts: files });
+      if (code !== 0) conflicted.push({ key: skill.key, files });
       else (choice === "accept" ? accepted : skipped).push(skill.key);
     }
 
     const out: string[] = [];
     if (accepted.length > 0) out.push(`Accepted: ${accepted.join(", ")}.`);
     if (skipped.length > 0) out.push(`Skipped: ${skipped.join(", ")}.`);
-    if (stoppedAt) {
-      const folder = existingSkillFolder(setDir, stoppedAt) ?? stoppedAt;
-      out.push(
-        `Conflict in ${conflicts.join(", ")} of ${stoppedAt}: diff3 markers are in ${folder}, the pin is moved, and nothing is committed for it.`,
-      );
+    for (const key of held) out.push(`${heldLine(key)}.`);
+    for (const { key, files } of conflicted) {
+      const folder = existingSkillFolder(setDir, key) ?? key;
+      out.push(`Conflict in ${files.join(", ")} of ${key}: diff3 markers are in ${folder}, the pin is moved, and nothing is committed for it.`);
     }
     if (later.length > 0) out.push(`Coming back next time: ${later.join(", ")}.`);
-    if (accepted.length + skipped.length + later.length === 0 && !stoppedAt && found.unreachable.size === 0) out.push(UP_TO_DATE);
-    if (found.fresh.length > 0) {
-      out.push("New upstream skills, not added:", ...found.fresh.map(({ source, name, path }) => `  ${source}: ${name} (${path})`));
-    }
+    const decided = accepted.length + skipped.length + later.length + held.length + conflicted.length;
+    if (decided === 0 && found.unreachable.size === 0) out.push(UP_TO_DATE);
+    out.push(...newUpstreamLines(found));
     if (out.length > 0) io.stdout.write(`${out.join("\n")}\n`);
-    for (const message of found.unreachable.values()) io.stderr.write(`${message.split("\n\n")[0]}. Its skills are left undecided.\n`);
 
-    let code = found.unreachable.size > 0 ? 1 : 0;
+    let code = reportUnreachable(io, found) ? 1 : 0;
     if (accepted.length + skipped.length > 0) {
       io.stdout.write("\n");
       code = (await offerPush(io, git, setDir, yes)) || code;
     }
-    if (stoppedAt) {
-      io.stdout.write(`\nNext: resolve the markers in ${stoppedAt}, then run \`moro sync accept ${stoppedAt}\` to commit it${later.length > 0 ? ", and \`moro sync\` again for the rest" : ""}.\n`);
+    const waiting = [...held, ...conflicted.map(({ key }) => key)];
+    if (waiting.length > 0) {
+      const commands = waiting.map((key) => `\`moro sync accept ${key}\``).join(" and ");
+      const rest = later.length > 0 ? ", and `moro sync` again for the rest" : "";
+      io.stdout.write(`\nNext: resolve the markers in ${waiting.join(", ")}, then run ${commands} to commit ${waiting.length === 1 ? "it" : "each"}${rest}.\n`);
       code = 1;
     }
     return code;
@@ -366,16 +377,16 @@ async function interactive(io: MoroIo, git: Git, setDir: string, manifest: Manif
   }
 }
 
-/** One line on what waits for a skill, for its question. */
-function skillLine(skill: Pending, conflicts: string[]): string {
+/** One line on what waits for a skill; `conflicts`, when known, adds whether accepting would conflict. */
+function skillLine(skill: Pending, conflicts?: string[]): string {
   const count = `${skill.commits.length} commit${skill.commits.length === 1 ? "" : "s"}`;
   const notes = [
-    skill.removed ? "removed upstream" : count,
-    ...(skill.moved ? ["moved"] : []),
-    ...(skill.handEdits.length > 0 ? ["you have hand edits"] : []),
+    skill.pure ? "moved, no change to the files" : skill.removed ? "removed upstream" : count,
+    ...(skill.moved && !skill.pure ? ["moved"] : []),
+    ...(skill.handEdits.length > 0 ? ["hand edits"] : []),
     ...(skill.mentions.length > 0 ? ["new lines naming Matt"] : []),
-    conflicts.length > 0 ? `accepting would conflict in ${conflicts.join(", ")}` : skill.removed ? "" : "merges cleanly",
-  ].filter(Boolean);
+    ...(conflicts === undefined || skill.removed ? [] : [conflicts.length > 0 ? `accepting would conflict in ${conflicts.join(", ")}` : "merges cleanly"]),
+  ];
   return `${skill.key}: ${notes.join(", ")}`;
 }
 
@@ -436,19 +447,16 @@ async function followMoves(io: MoroIo, git: Git, setDir: string, manifest: Manif
   const pure = pending.filter((skill) => skill.pure);
   if (pure.length === 0) return pending;
   const rest = pending.filter((skill) => !skill.pure);
-  if ((await git(["status", "--porcelain", "--", MANIFEST_FILE], setDir)) !== "") return rest;
+  const held = await heldKeys(git, setDir, manifest);
+  if (!(await manifestCommitted(git, setDir, held))) return rest;
   await requireRepoIdentity(git, setDir);
   const before = readFileSync(join(setDir, MANIFEST_FILE));
   for (const skill of pure) manifest.skills[skill.key] = { ...skill.entry, path: skill.headPath!, pin: skill.source.pin };
+  const message = `sync: follow ${pure.length === 1 ? "move" : "moves"} of ${pure.map((skill) => skill.key).join(", ")}`;
   try {
-    writeManifest(setDir, manifest);
-    await git(["add", "--", MANIFEST_FILE], setDir);
-    await git(["commit", "-q", "-m", `sync: follow ${pure.length === 1 ? "move" : "moves"} of ${pure.map((skill) => skill.key).join(", ")}`, "--", MANIFEST_FILE], setDir);
+    await commitPaths(git, setDir, manifest, held, [MANIFEST_FILE], message);
   } catch (error) {
-    await git(["reset", "-q", "--", MANIFEST_FILE], setDir).catch(() => undefined);
-    writeFileSync(join(setDir, MANIFEST_FILE), before);
-    if (error instanceof GitError) throw new UserError(`Sync changed nothing: ${error.message}`);
-    throw error;
+    return rollBack(git, setDir, error, { paths: [MANIFEST_FILE], manifestBefore: before });
   }
   io.stdout.write(`Followed ${pure.map((skill) => `${skill.key} (${skill.entry.path} to ${skill.headPath})`).join(", ")}: moved upstream with no change to the files.\n`);
   return rest;
@@ -480,13 +488,25 @@ async function previousRules(git: Git, setDir: string, id: string, current: Rena
   return undefined;
 }
 
+/** The sources with skills in the set whose rename rules changed since their copies were rendered. */
+async function sourcesWithNewRules(git: Git, setDir: string, manifest: Manifest): Promise<string[]> {
+  const ids: string[] = [];
+  for (const [id, source] of Object.entries(manifest.sources)) {
+    const used = Object.values(manifest.skills).some((entry) => entry.source === id);
+    if (used && (await previousRules(git, setDir, id, source.rename))) ids.push(id);
+  }
+  return ids;
+}
+
 /**
  * Changing a source's rename rules re-renders its skills by three-way merge at the same pin:
  * base is the pin rendered by the old rules, theirs by the new ones, so the copies don't turn into hand edits.
+ * A skill waiting on conflict markers is left as it is.
  */
 async function rerender(io: MoroIo, git: Git, setDir: string, manifest: Manifest): Promise<void> {
+  const held = await heldKeys(git, setDir, manifest);
   for (const [id, source] of Object.entries(manifest.sources)) {
-    const keys = Object.keys(manifest.skills).filter((key) => manifest.skills[key]!.source === id);
+    const keys = Object.keys(manifest.skills).filter((key) => manifest.skills[key]!.source === id && !held.includes(key));
     if (keys.length === 0) continue;
     const old = await previousRules(git, setDir, id, source.rename);
     if (!old) continue;
@@ -512,17 +532,13 @@ async function rerender(io: MoroIo, git: Git, setDir: string, manifest: Manifest
         results.push({ folder, files: merged.files });
       }
       await requireRepoIdentity(git, setDir);
-      await requireCommitted(git, setDir, folders, "status");
+      await requireCommitted(git, setDir, folders, "sync", held);
       const paths = [...folders, MANIFEST_FILE];
       try {
         for (const { folder, files } of results) replaceFolder(join(setDir, folder), files);
-        await git(["add", "-A", "--", ...paths], setDir);
-        await git(["commit", "-q", "--allow-empty", "-m", `sync: re-render ${id}`, "--", ...paths], setDir);
+        await commitPaths(git, setDir, manifest, held, paths, `sync: re-render ${id}`, true);
       } catch (error) {
-        await git(["reset", "-q", "--", ...paths], setDir).catch(() => undefined);
-        await git(["checkout", "-q", "HEAD", "--", ...folders], setDir).catch(() => undefined);
-        if (error instanceof GitError) throw new UserError(`Sync changed nothing: ${error.message}`);
-        throw error;
+        await rollBack(git, setDir, error, { paths, discard: folders });
       }
       io.stdout.write(`Re-rendered ${keys.join(", ")} from ${id} with its new rename rules, in one commit.\n`);
     } finally {
@@ -541,13 +557,14 @@ async function decide(
   batch?: { conflicts: string[] },
 ): Promise<number> {
   await requireRepoIdentity(git, setDir);
-  if ((await heldKeys(git, setDir, manifest)).includes(key)) {
+  const held = await heldKeys(git, setDir, manifest);
+  if (held.includes(key)) {
     if (action === "skip") {
       throw new UserError(
         `Accepting ${key} is waiting for its conflict markers to be resolved, so it can't be skipped.\n\nNext: resolve the markers, then run \`moro sync accept ${key}\`.`,
       );
     }
-    return finishAccept(io, git, setDir, manifest, key);
+    return finishAccept(io, git, setDir, manifest, key, held);
   }
   await rerender(io, git, setDir, manifest);
   const { fetches, pending: found } = await pendingSkills(git, setDir, manifest, key);
@@ -558,7 +575,7 @@ async function decide(
       return 0;
     }
     const paths = action === "accept" ? [skill.folder, MANIFEST_FILE] : [MANIFEST_FILE];
-    await requireCommitted(git, setDir, [skill.folder, MANIFEST_FILE], action);
+    await requireCommitted(git, setDir, [skill.folder], action, held);
 
     const merged = action === "accept" && !skill.removed ? await mergeSkill(git, skill) : undefined;
     const conflicted = merged !== undefined && merged.conflicts.length > 0;
@@ -577,17 +594,10 @@ async function decide(
     try {
       if (skill.removed && action === "accept") rmSync(join(setDir, skill.folder), { recursive: true, force: true });
       if (merged) replaceFolder(join(setDir, skill.folder), merged.files);
-      writeManifest(setDir, manifest);
-      if (!conflicted) {
-        await git(["add", "-A", "--", ...paths], setDir);
-        await git(["commit", "-q", "-m", `sync: ${action} ${key}`, "--", ...paths], setDir);
-      }
+      if (conflicted) writeManifest(setDir, manifest);
+      else await commitPaths(git, setDir, manifest, held, paths, `sync: ${action} ${key}`);
     } catch (error) {
-      await git(["reset", "-q", "--", ...paths], setDir).catch(() => undefined);
-      await git(["checkout", "-q", "HEAD", "--", ...paths], setDir).catch(() => undefined);
-      writeFileSync(join(setDir, MANIFEST_FILE), before);
-      if (error instanceof GitError) throw new UserError(`Sync changed nothing: ${error.message}`);
-      throw error;
+      await rollBack(git, setDir, error, { paths, discard: paths, manifestBefore: before });
     }
     if (conflicted && batch) {
       batch.conflicts.push(...merged.conflicts);
@@ -608,14 +618,15 @@ async function decide(
       : action === "accept"
         ? `took the changes since ${pin.slice(0, 7)}, pin now ${skill.source.pin.slice(0, 7)}`
         : `kept the copy as it is, pin now ${skill.source.pin.slice(0, 7)}`;
-    io.stdout.write(
-      `${verb} ${key}: ${detail}, in one commit.\n\nNot pushed: no machine sees this until you push.\nNext: run \`moro sync status\` for the next skill, then \`git push\` in the set's clone.\n`,
-    );
+    io.stdout.write(`${verb} ${key}: ${detail}, in one commit.\n\n${NOT_PUSHED}`);
     return 0;
   } finally {
     release(fetches);
   }
 }
+
+const NOT_PUSHED =
+  "Not pushed: no device sees this until you push.\nNext: run `moro sync status` for the next skill, then `git push` in the set's clone.\n";
 
 /** Removes an upstream skill's entry; on accept, also every mention of it in the set's graph. */
 function dropSkill(manifest: Manifest, key: string, folder: string, everywhere: boolean): void {
@@ -628,7 +639,7 @@ function dropSkill(manifest: Manifest, key: string, folder: string, everywhere: 
 }
 
 /** Commits an accept that left conflict markers, once none remain. */
-async function finishAccept(io: MoroIo, git: Git, setDir: string, manifest: Manifest, key: string): Promise<number> {
+async function finishAccept(io: MoroIo, git: Git, setDir: string, manifest: Manifest, key: string, held: string[]): Promise<number> {
   const folder = existingSkillFolder(setDir, key);
   if (!folder) throw new UserError(`The set has no folder for ${key}.`);
   const marked = readSkillFiles(join(setDir, folder))
@@ -640,26 +651,82 @@ async function finishAccept(io: MoroIo, git: Git, setDir: string, manifest: Mani
     );
   }
   const paths = [folder, MANIFEST_FILE];
+  const before = readFileSync(join(setDir, MANIFEST_FILE));
   try {
-    await git(["add", "-A", "--", ...paths], setDir);
-    await git(["commit", "-q", "-m", `sync: accept ${key}`, "--", ...paths], setDir);
+    await commitPaths(git, setDir, manifest, held.filter((other) => other !== key), paths, `sync: accept ${key}`);
   } catch (error) {
-    await git(["reset", "-q", "--", ...paths], setDir).catch(() => undefined);
-    if (error instanceof GitError) throw new UserError(`Sync changed nothing: ${error.message}`);
-    throw error;
+    await rollBack(git, setDir, error, { paths, manifestBefore: before });
   }
-  io.stdout.write(
-    `Accepted ${key}: resolved, pin now ${manifest.skills[key]!.pin.slice(0, 7)}, in one commit.\n\nNot pushed: no machine sees this until you push.\nNext: run \`moro sync status\` for the next skill, then \`git push\` in the set's clone.\n`,
-  );
+  io.stdout.write(`Accepted ${key}: resolved, pin now ${manifest.skills[key]!.pin.slice(0, 7)}, in one commit.\n\n${NOT_PUSHED}`);
   return 0;
 }
 
-/** A decision commits only its own skill's folder and the manifest, so those can't hold uncommitted work. */
-async function requireCommitted(git: Git, setDir: string, paths: string[], action: string): Promise<void> {
-  if ((await git(["status", "--porcelain", "--", ...paths], setDir)) === "") return;
+/** Whether the manifest differs from HEAD's only in the pins of held accepts, which wait for their markers. */
+async function manifestCommitted(git: Git, setDir: string, held: string[]): Promise<boolean> {
+  if ((await git(["status", "--porcelain", "--", MANIFEST_FILE], setDir)) === "") return true;
+  const committed = await committedManifest(git, setDir);
+  if (held.length === 0 || !committed) return false;
+  const without = (manifest: Partial<Manifest>) =>
+    JSON.stringify(manifest, (name, value: unknown) => (name === "skills" ? Object.fromEntries(Object.entries(value as object).filter(([key]) => !held.includes(key))) : value));
+  const working = JSON.parse(readFileSync(join(setDir, MANIFEST_FILE), "utf8")) as Partial<Manifest>;
+  return without(sortKeys(working)) === without(sortKeys(committed));
+}
+
+/** The same value with every object's keys sorted, so two manifests compare by content. */
+function sortKeys(value: unknown): Partial<Manifest> {
+  if (Array.isArray(value)) return value.map(sortKeys) as never;
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([name, inner]) => [name, sortKeys(inner)]));
+  }
+  return value as never;
+}
+
+/**
+ * A decision commits only its own skill's folder and the manifest, so those can't hold uncommitted work
+ * (a held accept's pin in the manifest and its folder's markers aside).
+ */
+async function requireCommitted(git: Git, setDir: string, folders: string[], action: string, held: string[]): Promise<void> {
+  const clean = (await git(["status", "--porcelain", "--", ...folders], setDir)) === "" && (await manifestCommitted(git, setDir, held));
+  if (clean) return;
   throw new UserError(
-    `${paths.join(" and ")} have uncommitted changes, and a decision makes one commit of its own. Nothing was changed.\n\nNext: commit or discard them, then rerun \`moro sync ${action}\`.`,
+    `${[...folders, MANIFEST_FILE].join(" and ")} have uncommitted changes, and a decision makes one commit of its own. Nothing was changed.\n\nNext: commit or discard them, then rerun \`moro sync ${action}\`.`,
   );
+}
+
+/**
+ * Commits `paths` with the manifest, leaving the pins of held accepts at what HEAD holds:
+ * they are committed once their own markers are resolved. The working manifest keeps them.
+ */
+async function commitPaths(
+  git: Git,
+  setDir: string,
+  manifest: Manifest,
+  held: string[],
+  paths: string[],
+  message: string,
+  allowEmpty = false,
+): Promise<void> {
+  const committed = (await committedManifest(git, setDir))?.skills ?? {};
+  const view: Manifest = { ...manifest, skills: { ...manifest.skills } };
+  for (const key of held) if (committed[key]) view.skills[key] = committed[key]!;
+  writeManifest(setDir, view);
+  await git(["add", "-A", "--", ...paths], setDir);
+  await git(["commit", "-q", ...(allowEmpty ? ["--allow-empty"] : []), "-m", message, "--", ...paths], setDir);
+  writeManifest(setDir, manifest);
+}
+
+/** Undoes a failed decision: unstages `paths`, restores `discard` from HEAD and the manifest's bytes, and rethrows. */
+async function rollBack(
+  git: Git,
+  setDir: string,
+  error: unknown,
+  undo: { paths: string[]; discard?: string[]; manifestBefore?: Buffer },
+): Promise<never> {
+  await git(["reset", "-q", "--", ...undo.paths], setDir).catch(() => undefined);
+  if (undo.discard?.length) await git(["checkout", "-q", "HEAD", "--", ...undo.discard], setDir).catch(() => undefined);
+  if (undo.manifestBefore) writeFileSync(join(setDir, MANIFEST_FILE), undo.manifestBefore);
+  if (error instanceof GitError) throw new UserError(`Sync changed nothing: ${error.message}`);
+  throw error;
 }
 
 // ---- file sets

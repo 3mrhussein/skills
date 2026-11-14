@@ -172,7 +172,7 @@ async function checkoutSource(git: Git, args: AddArgs): Promise<Checkout> {
         [
           `Can't reach ${args.input}: ${error.stderr.trim()}`,
           "",
-          `${NOTHING_ADDED} Next: check the ref, and that this machine can read the repo, then rerun.`,
+          `${NOTHING_ADDED} Next: check the ref, and that this device can read the repo, then rerun.`,
         ].join("\n"),
       );
     }
@@ -444,7 +444,7 @@ function takenInRun(keyed: Keyed[], name: string): Keyed | undefined {
   return keyed.find((other) => other.name === name);
 }
 
-/** Names are unique across `skills/`, `work/` and the manifest, except for a skill this run replaces. */
+/** Names are unique across `skills/`, `local-only/` and the manifest, except for a skill this run replaces. */
 function takenInSet(setDir: string, manifest: Manifest, plan: Plan, name: string): Taken | undefined {
   if (plan.replaced.some((replaced) => replaced.name === name)) return undefined;
   const folder = existingSkillFolder(setDir, name);
@@ -513,7 +513,7 @@ function summary(plan: Plan, othersInSet: string[]): string[] {
 /** Pushes the set's clone, asking first unless `--yes`; ends with the next step. */
 export async function offerPush(io: MoroIo, git: Git, setDir: string, yes: boolean): Promise<number> {
   if (!yes && !(await askYesNo(io.prompter, "Push now?", "yes"))) {
-    io.stdout.write("Not pushed: no machine sees this until you push.\n\nNext: run `git push` in the set's clone.\n");
+    io.stdout.write("Not pushed: no device sees this until you push.\n\nNext: run `git push` in the set's clone.\n");
     return 0;
   }
   try {
@@ -534,13 +534,13 @@ export async function offerPush(io: MoroIo, git: Git, setDir: string, yes: boole
   return 0;
 }
 
-/** Commits in the set use the clone's own identity, never the machine's global one. */
+/** Commits in the set use the clone's own identity, never the device's global one. */
 export async function requireRepoIdentity(git: Git, setDir: string): Promise<void> {
   const local = (key: string) => git(["config", "--local", key], setDir).catch(() => "");
   if ((await local("user.name")) && (await local("user.email"))) return;
   throw new UserError(
     [
-      "The set's clone has no git identity of its own, so a commit would use this machine's global one.",
+      "The set's clone has no git identity of its own, so a commit would use this device's global one.",
       "Next: in the set's clone, run",
       '  git config user.name "<your personal name>"',
       '  git config user.email "<your personal email>"',

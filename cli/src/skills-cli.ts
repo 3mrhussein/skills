@@ -1,4 +1,4 @@
-// The `skills` CLI, pinned as a dependency so every machine and every test runs
+// The `skills` CLI, pinned as a dependency so every device and every test runs
 // the same version.
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
