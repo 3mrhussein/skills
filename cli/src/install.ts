@@ -1,9 +1,9 @@
 // `moro install`: the set's skills, offered in one multi-select and copied into
 // the project from the clone. Nothing is recorded in the project beyond what the
 // `skills` CLI writes (its `skills-lock.json` and the skill folders).
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
-import { findClone } from "./device.js";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
+import { findClone, worktreeOf } from "./device.js";
 import { cloneCopy, diffFolders, diverge, projectCopy, needsRerun, reportLines, type Divergence, type Label, type SetSkill } from "./divergence.js";
 import { gitRunner } from "./git.js";
 import { RERUN_INSTALL, RERUN_SETUP, UP_TO_DATE } from "./hints.js";
@@ -18,7 +18,7 @@ import { runSkills } from "./skills-cli.js";
 import { UserError } from "./user-error.js";
 import { MORO_VERSION } from "./version.js";
 
-const USAGE = "moro install [--yes] [--pick <skill…>] [--keep-out | --commit] [--use-set-copy <skill…>]";
+const USAGE = "moro install [--yes] [--pick <skill…>] [--keep-out | --commit] [--use-set-copy <skill…>] [--from <worktree>]";
 
 /** One skill the project can take; a local-only one is copied from the clone's gitignored `local-only/` and always kept out of the project's git. */
 interface Offer extends SetSkill {
@@ -35,6 +35,8 @@ interface InstallArgs {
   keepOut?: boolean;
   /** The edited here or loose skills that the set's copy replaces, instead of asking. */
   useSetCopy?: string[];
+  /** A trial's worktree of the clone to install from, in place of the clone. */
+  from?: string;
 }
 
 export async function install(io: MoroIo, argv: string[]): Promise<number> {
@@ -43,10 +45,12 @@ export async function install(io: MoroIo, argv: string[]): Promise<number> {
   const git = gitRunner(io.env);
   const top = await projectTop(git, io.cwd);
   const clone = findClone(io);
+  // The shared skills and the manifest come from `setDir`; local-only skills always from the clone.
+  const setDir = args.from === undefined ? clone : trialWorktree(clone, resolve(io.cwd, args.from));
 
-  const offers = readOffers(clone);
+  const offers = readOffers(setDir, clone);
   if (offers.length === 0) {
-    throw new UserError(`The set at ${clone} has no skills to install.\n\nNext: add some with \`moro add\`.`);
+    throw new UserError(`The set at ${setDir} has no skills to install.\n\nNext: add some with \`moro add\`.`);
   }
   for (const name of [...(args.pick ?? []), ...(args.useSetCopy ?? [])]) {
     if (!offers.some((offer) => offer.name === name) && !installedSkills(top).includes(name)) {
@@ -56,11 +60,11 @@ export async function install(io: MoroIo, argv: string[]): Promise<number> {
   const current = installedSkills(top);
   const firstInstall = current.length === 0;
 
-  const divergence = diverge(top, clone, offers, current);
+  const divergence = diverge(top, setDir, offers, current, clone);
   writeReport(io, divergence);
   const hasLabel = (name: string, label: Label) => !!divergence.labels.get(name)?.includes(label);
 
-  const rules = readRules(clone, offers);
+  const rules = readRules(setDir, offers);
   const start = offers
     .filter((offer) => (firstInstall ? offer.recommended : current.includes(offer.name)))
     .map((offer) => offer.name);
@@ -80,7 +84,7 @@ export async function install(io: MoroIo, argv: string[]): Promise<number> {
   for (const name of picks.filter((pick) => hasLabel(pick, "edited here") || hasLabel(pick, "loose"))) {
     const offer = offers.find((candidate) => candidate.name === name)!;
     // Without an answer, `--yes` never overwrites the owner's copy.
-    const useSet = args.useSetCopy ? args.useSetCopy.includes(name) : !yes && (await askUseSetCopy(io, top, clone, offer));
+    const useSet = args.useSetCopy ? args.useSetCopy.includes(name) : !yes && (await askUseSetCopy(io, top, cloneCopy(setDir, offer, clone), offer));
     if (useSet) {
       if (hasLabel(name, "edited here")) update.push(name);
     } else if (hasLabel(name, "loose")) add.splice(add.indexOf(name), 1);
@@ -95,7 +99,7 @@ export async function install(io: MoroIo, argv: string[]): Promise<number> {
   keepOut ||= !firstInstall && existsSync(excludeFile) && readFileSync(excludeFile, "utf8").split("\n").includes(`/${PROJECT_LOCK}`);
 
   const localAdds = add.filter((name) => offers.find((offer) => offer.name === name)?.localOnly);
-  await apply(io, { clone, top, add: [...add, ...update], remove, offers });
+  await apply(io, { setDir, clone, top, add: [...add, ...update], remove, offers });
   if (keepOut && add.length > 0) excludeFromGit(top, excludeFile, add, true);
   else if (localAdds.length > 0) excludeFromGit(top, excludeFile, localAdds, false);
 
@@ -106,7 +110,7 @@ export async function install(io: MoroIo, argv: string[]): Promise<number> {
 export async function projectStatus(io: MoroIo, git: ReturnType<typeof gitRunner>): Promise<number> {
   const top = await projectTop(git, io.cwd);
   const clone = findClone(io);
-  const divergence = diverge(top, clone, readOffers(clone), installedSkills(top));
+  const divergence = diverge(top, clone, readOffers(clone, clone), installedSkills(top));
   writeReport(io, divergence);
   io.stdout.write(`${needsRerun(divergence) ? RERUN_SETUP : UP_TO_DATE}\n`);
   return 0;
@@ -118,9 +122,9 @@ function writeReport(io: MoroIo, divergence: Divergence): void {
 }
 
 /** Shows how the project's copy differs from the clone's, then asks whether the set's copy replaces it. */
-async function askUseSetCopy(io: MoroIo, top: string, clone: string, offer: Offer): Promise<boolean> {
+async function askUseSetCopy(io: MoroIo, top: string, setCopy: string, offer: Offer): Promise<boolean> {
   const mine = projectCopy(top, offer.name)!;
-  io.stdout.write(`${offer.name}: the project's copy differs from the set's.\n${diffFolders(mine, cloneCopy(clone, offer))}\n`);
+  io.stdout.write(`${offer.name}: the project's copy differs from the set's.\n${diffFolders(mine, setCopy)}\n`);
   return askYesNo(io.prompter, `Use the set's copy of ${offer.name}?`, "no");
 }
 
@@ -140,6 +144,10 @@ function parseArgs(argv: string[]): InstallArgs {
         throw new UserError(`Give --keep-out or --commit, not both.\n\nNext: run \`${USAGE}\``);
       }
       args.keepOut = arg === "--keep-out";
+    } else if (arg === "--from") {
+      const folder = argv[++i];
+      if (!folder || folder.startsWith("-")) throw new UserError(`--from takes a worktree of the set's clone.\n\nNext: run \`${USAGE}\``);
+      args.from = folder;
     } else if (arg === "--pick" || arg === "--use-set-copy") {
       const found = names(arg, i + 1);
       i += found.length;
@@ -161,11 +169,22 @@ async function projectTop(git: ReturnType<typeof gitRunner>, cwd: string): Promi
   }
 }
 
-function readOffers(clone: string): Offer[] {
-  const manifest = readManifest(clone, MORO_VERSION);
+/** `--from`'s folder, when it is the clone or a worktree of it: a trial's candidate. */
+function trialWorktree(clone: string, folder: string): string {
+  const real = existsSync(folder) ? realpathSync(folder) : folder;
+  if (real === realpathSync(clone)) return clone;
+  const worktree = existsSync(folder) ? worktreeOf(clone, folder) : undefined;
+  if (worktree === real) return worktree;
+  throw new UserError(
+    `${folder} isn't a worktree of the set's clone (${clone}).\n\nNext: run \`moro try <skill>\` in the set's clone, then pass one of the worktrees it prints.`,
+  );
+}
+
+function readOffers(setDir: string, clone: string): Offer[] {
+  const manifest = readManifest(setDir, MORO_VERSION);
   const recommended = new Set(manifest.recommended.map((path) => basename(path)));
   // The entry skill lives at user level, so a project install never offers it.
-  const shared = skillsWithGroups(clone).filter(({ name }) => name !== ENTRY_SKILL).map(({ name, group }) => ({ name, group, recommended: recommended.has(name) }));
+  const shared = skillsWithGroups(setDir).filter(({ name }) => name !== ENTRY_SKILL).map(({ name, group }) => ({ name, group, recommended: recommended.has(name) }));
   const local = localOnlySkills(clone).map(({ name, group }) => ({ name, group, recommended: true, localOnly: true }));
   for (const offer of local) {
     const twin = shared.find((other) => other.name === offer.name);
@@ -283,11 +302,11 @@ function plan(offers: Offer[], current: string[], picks: string[], gone: string[
   };
 }
 
-async function apply(io: MoroIo, work: { clone: string; top: string; add: string[]; remove: string[]; offers: Offer[] }): Promise<void> {
+async function apply(io: MoroIo, work: { setDir: string; clone: string; top: string; add: string[]; remove: string[]; offers: Offer[] }): Promise<void> {
   const local = work.offers.filter((offer) => offer.localOnly && work.add.includes(offer.name));
   const shared = work.add.filter((name) => !local.some((offer) => offer.name === name));
   const installs = [
-    ...(shared.length > 0 ? [["add", work.clone, "-y", "--skill", ...shared]] : []),
+    ...(shared.length > 0 ? [["add", work.setDir, "-y", "--skill", ...shared]] : []),
     ...local.map((offer) => ["add", join(work.clone, LOCAL_ONLY_DIR, offer.group, offer.name), "-y"]),
   ];
   for (const args of installs) {

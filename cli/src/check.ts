@@ -3,7 +3,7 @@
 // if any, and reports where the skills that call each other don't fit.
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join, relative, resolve } from "node:path";
-import { findClone } from "./device.js";
+import { findSet } from "./device.js";
 import { frontmatterName } from "./frontmatter.js";
 import type { MoroIo } from "./main.js";
 import { MANIFEST_FILE, type Manifest } from "./manifest.js";
@@ -56,7 +56,7 @@ const FINDING_ORDER: FindingKind[] = ["missing", "user-invoked", "undeclared", "
 
 export async function check(io: MoroIo, argv: string[]): Promise<number> {
   const { folder: given, impact: changed, json } = parseArgs(argv);
-  const folder = given === undefined ? findClone(io) : resolve(io.cwd, given);
+  const folder = given === undefined ? findSet(io) : resolve(io.cwd, given);
   if (!existsSync(folder) || !statSync(folder).isDirectory()) {
     throw new UserError(`${folder} isn't a folder.\n\nNext: run ${USAGE} with a folder of skills, or no folder for the clone.`);
   }

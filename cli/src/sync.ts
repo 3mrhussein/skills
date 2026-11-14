@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { offerPush, requireRepoIdentity } from "./add.js";
 import { checkWarning, impactSummary } from "./check.js";
-import { findClone } from "./device.js";
+import { findSet } from "./device.js";
 import { UP_TO_DATE } from "./hints.js";
 import { frontmatterName } from "./frontmatter.js";
 import { type Git, GitError, gitRunner } from "./git.js";
@@ -22,7 +22,7 @@ import { MORO_VERSION } from "./version.js";
 const USAGE = "moro sync [--yes] | status | show <skill> | accept <skill> | skip <skill> | fallback <skill>";
 
 /** What a decision does to a skill's upstream change. */
-type Decision = "accept" | "skip" | "fallback";
+export type Decision = "accept" | "skip" | "fallback";
 
 /** Fallback is offered only for a skill with hand edits that upstream still holds: otherwise it equals accept. */
 const offersFallback = (skill: Pending) => !skill.removed && skill.handEdits.length > 0;
@@ -36,7 +36,7 @@ function decisionCommands(skill: Pending): string {
 export async function sync(io: MoroIo, argv: string[]): Promise<number> {
   const [action, ...rest] = argv;
   const git = gitRunner(io.env);
-  const setDir = findClone(io);
+  const setDir = findSet(io);
   const manifest = readManifest(setDir, MORO_VERSION);
   switch (action) {
     case undefined:
@@ -678,7 +678,7 @@ async function decide(
           : dropped.length > 0
             ? `dropped the hand edits in ${dropped.join(", ")} and took the upstream text, pin now ${newPin}`
             : `it had no hand edits, so it took the upstream changes as accept would, pin now ${newPin}`;
-    io.stdout.write(`${verb} ${key}: ${detail}, in one commit.\n\n${action === "skip" ? "" : checkWarning(setDir)}${NOT_PUSHED}`);
+    io.stdout.write(`${verb} ${key}: ${detail}, in one commit.\n\n${action === "skip" ? "" : checkWarning(setDir)}${await afterDecision(git, setDir)}`);
     return 0;
   } finally {
     release(fetches);
@@ -687,6 +687,40 @@ async function decide(
 
 const NOT_PUSHED =
   "Not pushed: no device sees this until you push.\nNext: run `moro sync status` for the next skill, then `git push` in the set's clone.\n";
+
+/**
+ * The closing lines of a single decision. On a trial's branch nothing needs a push:
+ * `moro try <skill> --keep` merges the branch into main, so the next step is comparing the candidates.
+ */
+async function afterDecision(git: Git, setDir: string): Promise<string> {
+  const branch = await git(["branch", "--show-current"], setDir).catch(() => "");
+  const trial = /^try\/(.+?)(?:-fallback|-adapted)?$/.exec(branch)?.[1];
+  return trial ? `Next: run \`moro try ${trial}\` to compare the candidates again.\n` : NOT_PUSHED;
+}
+
+/** What `moro try` finds for a skill in a checkout of main: whether it has an upstream change to try, and of which kind. */
+export type ChangeKind = "none" | "moved" | "removed" | "plain" | "hand edits";
+
+export async function changeKind(io: MoroIo, setDir: string, key: string): Promise<ChangeKind> {
+  const { fetches, pending } = await pendingSkills(gitRunner(io.env), setDir, readManifest(setDir, MORO_VERSION), key);
+  release(fetches);
+  const skill = pending[0];
+  if (!skill) return "none";
+  if (skill.pure) return "moved";
+  if (skill.removed) return "removed";
+  return offersFallback(skill) ? "hand edits" : "plain";
+}
+
+/**
+ * One decision on a candidate's worktree, as `moro sync <action> <key>` makes it there, printing nothing.
+ * Returns the files an accept left conflict markers in; empty when the decision is committed.
+ */
+export async function decideQuietly(io: MoroIo, setDir: string, key: string, action: Decision): Promise<string[]> {
+  const quiet: MoroIo = { ...io, stdout: { write: () => undefined } };
+  const conflicts: string[] = [];
+  await decide(quiet, gitRunner(io.env), setDir, readManifest(setDir, MORO_VERSION), key, action, { conflicts });
+  return conflicts;
+}
 
 /** Removes an upstream skill's entry; on accept, also every mention of it in the set's graph. */
 function dropSkill(manifest: Manifest, key: string, folder: string, everywhere: boolean): void {
@@ -698,13 +732,18 @@ function dropSkill(manifest: Manifest, key: string, folder: string, everywhere: 
   for (const [name, needs] of Object.entries(manifest.dependsOn)) manifest.dependsOn[name] = needs.filter((need) => need !== key);
 }
 
+/** The files in a skill's folder that still hold conflict markers. */
+export function markedFiles(folder: string): string[] {
+  return readSkillFiles(folder)
+    .filter((file) => !("symlink" in file) && !file.content.includes(0) && /^(<{7}|>{7}) /m.test(file.content.toString("utf8")))
+    .map((file) => file.path);
+}
+
 /** Commits an accept that left conflict markers, once none remain. */
 async function finishAccept(io: MoroIo, git: Git, setDir: string, manifest: Manifest, key: string, held: string[]): Promise<number> {
   const folder = existingSkillFolder(setDir, key);
   if (!folder) throw new UserError(`The set has no folder for ${key}.`);
-  const marked = readSkillFiles(join(setDir, folder))
-    .filter((file) => !("symlink" in file) && !file.content.includes(0) && /^(<{7}|>{7}) /m.test(file.content.toString("utf8")))
-    .map((file) => file.path);
+  const marked = markedFiles(join(setDir, folder));
   if (marked.length > 0) {
     throw new UserError(
       `Conflict markers are still in ${marked.join(", ")}, so accepting ${key} can't be committed. Nothing was changed.\n\nNext: resolve the markers, then rerun \`moro sync accept ${key}\`.`,
@@ -717,7 +756,7 @@ async function finishAccept(io: MoroIo, git: Git, setDir: string, manifest: Mani
   } catch (error) {
     await rollBack(git, setDir, error, { paths, manifestBefore: before });
   }
-  io.stdout.write(`Accepted ${key}: resolved, pin now ${manifest.skills[key]!.pin.slice(0, 7)}, in one commit.\n\n${NOT_PUSHED}`);
+  io.stdout.write(`Accepted ${key}: resolved, pin now ${manifest.skills[key]!.pin.slice(0, 7)}, in one commit.\n\n${await afterDecision(git, setDir)}`);
   return 0;
 }
 

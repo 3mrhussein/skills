@@ -7,6 +7,7 @@ import { install } from "./install.js";
 import { requireDevice } from "./hints.js";
 import { status } from "./state.js";
 import { sync } from "./sync.js";
+import { trySkill } from "./try.js";
 import { UserError } from "./user-error.js";
 import { MORO_VERSION } from "./version.js";
 
@@ -51,6 +52,9 @@ async function run(io: MoroIo): Promise<number> {
     case "sync":
       requireDevice(io);
       return sync(io, args);
+    case "try":
+      requireDevice(io);
+      return trySkill(io, args);
     case "check":
       requireDevice(io);
       return check(io, args);

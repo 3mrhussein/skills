@@ -1,7 +1,7 @@
 // The device file: where this device's clone of the set is. It lives in moro's
 // config folder, outside every repo, so it is never committed.
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { type Env, readLocations } from "./locations.js";
 import { UserError } from "./user-error.js";
 
@@ -43,4 +43,29 @@ export function findClone(io: { env: Env }): string {
     );
   }
   return clone;
+}
+
+/**
+ * The set the commands that change it work on: the trial worktree of the clone that holds
+ * the current folder, so `moro add` and `moro sync` there commit on its branch; otherwise the clone.
+ */
+export function findSet(io: { env: Env; cwd: string }): string {
+  const clone = findClone(io);
+  return worktreeOf(clone, io.cwd) ?? clone;
+}
+
+/** The top folder of the linked worktree of `clone` that holds `folder`, if one does. */
+export function worktreeOf(clone: string, folder: string): string | undefined {
+  const worktrees = join(realpathSync(join(clone, ".git")), "worktrees");
+  for (let dir = resolve(folder); ; dir = dirname(dir)) {
+    const dotGit = join(dir, ".git");
+    if (existsSync(dotGit)) {
+      // A linked worktree's `.git` is a file naming its folder under the clone's `.git/worktrees`.
+      if (!statSync(dotGit).isFile()) return undefined;
+      const gitdir = /^gitdir: (.+)$/m.exec(readFileSync(dotGit, "utf8"))?.[1]?.trim();
+      if (!gitdir || !existsSync(resolve(dir, gitdir))) return undefined;
+      return dirname(realpathSync(resolve(dir, gitdir))) === worktrees ? realpathSync(dir) : undefined;
+    }
+    if (dirname(dir) === dir) return undefined;
+  }
 }

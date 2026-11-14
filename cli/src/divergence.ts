@@ -24,13 +24,16 @@ export interface Divergence {
   gone: string[];
 }
 
-/** The clone's folder for a skill. */
-export function cloneCopy(clone: string, skill: SetSkill): string {
-  return skill.localOnly ? join(clone, LOCAL_ONLY_DIR, skill.group, skill.name) : join(clone, skillFolder(skill.name, skill.group));
+/**
+ * The set's folder for a skill: in `setDir` (the clone, or a trial's worktree of it), or for a
+ * local-only skill in the clone, whose gitignored `local-only/` no worktree has.
+ */
+export function cloneCopy(setDir: string, skill: SetSkill, clone = setDir): string {
+  return skill.localOnly ? join(clone, LOCAL_ONLY_DIR, skill.group, skill.name) : join(setDir, skillFolder(skill.name, skill.group));
 }
 
 /** Compares each skill with the project lock. `current` are the names the lock records. */
-export function diverge(top: string, clone: string, skills: SetSkill[], current: string[]): Divergence {
+export function diverge(top: string, setDir: string, skills: SetSkill[], current: string[], clone = setDir): Divergence {
   const lock = readProjectLock(top);
   const labels = new Map<string, Label[]>();
   const add = (name: string, label: Label) => labels.set(name, [...(labels.get(name) ?? []), label]);
@@ -45,11 +48,14 @@ export function diverge(top: string, clone: string, skills: SetSkill[], current:
     const recorded = lock[skill.name]?.computedHash;
     if (!recorded) continue;
     if (folder && hashFolder(folder) !== recorded) add(skill.name, "edited here");
-    if (hashFolder(cloneCopy(clone, skill)) !== recorded) add(skill.name, "set changed");
+    if (hashFolder(cloneCopy(setDir, skill, clone)) !== recorded) add(skill.name, "set changed");
   }
   const held = new Set(skills.map((skill) => skill.name));
   // The entry skill belongs at user level; a project's copy of it is left alone, not reported.
-  const gone = current.filter((name) => !held.has(name) && name !== ENTRY_SKILL && fromClone(top, clone, lock[name]?.source));
+  // A skill a trial project took from a trial's worktree (`<clone>-try/…`) counts as the set's too.
+  const gone = current.filter(
+    (name) => !held.has(name) && name !== ENTRY_SKILL && [clone, setDir, `${clone}-try`].some((root) => fromClone(top, root, lock[name]?.source)),
+  );
   for (const name of gone) add(name, "gone from the set");
   return { labels, gone };
 }

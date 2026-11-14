@@ -2,7 +2,7 @@
 // with prompts, or with none under `--yes`.
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, sep } from "node:path";
-import { findClone } from "./device.js";
+import { findSet } from "./device.js";
 import { type Git, GitError, gitRunner } from "./git.js";
 import {
   addSource,
@@ -85,7 +85,7 @@ const NOTHING_ADDED = "Nothing was added.";
 export async function add(io: MoroIo, argv: string[]): Promise<number> {
   const args = parseArgs(argv);
   const git = gitRunner(io.env);
-  const setDir = findClone(io);
+  const setDir = findSet(io);
   await requireRepoIdentity(git, setDir);
 
   const source = await checkoutSource(git, args);
