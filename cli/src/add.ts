@@ -14,7 +14,7 @@ import {
   writeManifest,
 } from "./manifest.js";
 import type { MoroIo } from "./main.js";
-import type { Prompter } from "./prompter.js";
+import { askYesNo, type Prompter } from "./prompter.js";
 import { cloneUrl, parseRef, type SourceRef } from "./ref.js";
 import { render, renderName } from "./render.js";
 import { existingSkillFolder, skillFolder } from "./set-layout.js";
@@ -315,18 +315,6 @@ async function askKey(
     if (!why) return key;
     say(why);
   }
-}
-
-async function askYesNo(prompter: Prompter, message: string, recommended: "yes" | "no"): Promise<boolean> {
-  const answer = await prompter.select({
-    message,
-    choices: [
-      { value: "yes", label: "Yes" },
-      { value: "no", label: "No" },
-    ],
-    recommended,
-  });
-  return "value" in answer && answer.value === "yes";
 }
 
 function takenInRun(keyed: Keyed[], name: string): Keyed | undefined {

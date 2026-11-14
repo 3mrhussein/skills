@@ -11,6 +11,8 @@ export interface Locations {
   configDir: string;
   /** The per-machine file: this machine's choices. Never committed. */
   machineFile: string;
+  /** The `skills` CLI's user-level lock, where that CLI keeps it. */
+  lockFile: string;
   /** The set's remote, as `git` and the `skills` CLI take it. Not the set's clone. */
   setRemote: string;
   /** The npm registry the update check reads. */
@@ -26,6 +28,10 @@ export function readLocations(env: Env): Locations {
     home,
     configDir,
     machineFile: join(configDir, "config.json"),
+    // The `skills` CLI reads XDG_STATE_HOME as given, relative or not.
+    lockFile: env.XDG_STATE_HOME
+      ? join(env.XDG_STATE_HOME, "skills", ".skill-lock.json")
+      : join(home, ".agents", ".skill-lock.json"),
     setRemote: env.MORO_SET_REMOTE || "https://github.com/3mrhussein/skills.git",
     npmRegistry: env.MORO_NPM_REGISTRY || "https://registry.npmjs.org/",
   };

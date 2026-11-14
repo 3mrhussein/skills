@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { add } from "./add.js";
 import type { Prompter } from "./prompter.js";
 import { type Env, readLocations } from "./locations.js";
+import { setup } from "./setup.js";
 import { UserError } from "./user-error.js";
 import { MORO_VERSION } from "./version.js";
 
@@ -36,6 +37,8 @@ async function run(io: MoroIo): Promise<number> {
       return status(io);
     case "add":
       return add(io, args);
+    case "setup":
+      return setup(io, args);
     case "--version":
       io.stdout.write(`${MORO_VERSION}\n`);
       return 0;

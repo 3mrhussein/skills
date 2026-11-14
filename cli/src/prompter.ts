@@ -20,8 +20,11 @@ export type Answer = { value: string } | { typed: string };
 
 export interface MultiSelectRequest {
   message: string;
-  /** Nothing starts picked. A disabled choice is shown greyed out, with the reason, and can't be picked. */
-  choices: (Choice & { disabled?: string })[];
+  /**
+   * A picked choice starts ticked, and Enter keeps the ticked ones; otherwise nothing starts picked.
+   * A disabled choice is shown greyed out, with the reason, and can't be picked.
+   */
+  choices: (Choice & { disabled?: string; picked?: boolean })[];
 }
 
 export interface Prompter {
@@ -71,25 +74,47 @@ export function createTerminalPrompter(streams: {
       const out = streams.output;
       const pickable = request.choices.filter((choice) => !choice.disabled);
       const grey = (text: string) => ("isTTY" in out && out.isTTY ? `\x1b[2m${text}\x1b[22m` : text);
+      const ticked = pickable.filter((choice) => choice.picked);
+      const tick = (choice: { picked?: boolean }) => (ticked.length === 0 ? "" : choice.picked ? "[x] " : "[ ] ");
       out.write(`\n${request.message}\n`);
       let number = 0;
       for (const choice of request.choices) {
         if (choice.disabled) out.write(`${grey(`  -  ${choice.label} (${choice.disabled})`)}\n`);
-        else out.write(`  ${++number}. ${choice.label}\n`);
+        else out.write(`  ${++number}. ${tick(choice)}${choice.label}\n`);
       }
-      out.write("  Type the numbers to take (like 1 3 5-7), or all; Enter takes none.\n");
+      const hint =
+        ticked.length === 0
+          ? { help: "or all; Enter takes none", retry: "or all, or press Enter for none" }
+          : { help: "all or none; Enter keeps the ticked ones", retry: "all or none, or press Enter to keep the ticked ones" };
+      out.write(`  Type the numbers to take (like 1 3 5-7), ${hint.help}.\n`);
 
       for (;;) {
         out.write("> ");
-        const picked = parsePicks((await nextLine()).trim(), pickable.length);
+        const text = (await nextLine()).trim();
+        if (text === "") return ticked.map((choice) => choice.value);
+        if (text === "none") return [];
+        const picked = parsePicks(text, pickable.length);
         if (picked) return pickable.filter((_, index) => picked.has(index + 1)).map((choice) => choice.value);
-        out.write(`Pick numbers from 1 to ${pickable.length}, or all, or press Enter for none.\n`);
+        out.write(`Pick numbers from 1 to ${pickable.length}, ${hint.retry}.\n`);
       }
     },
     close() {
       rl?.close();
     },
   };
+}
+
+/** A yes/no question; true for yes. */
+export async function askYesNo(prompter: Prompter, message: string, recommended: "yes" | "no"): Promise<boolean> {
+  const answer = await prompter.select({
+    message,
+    choices: [
+      { value: "yes", label: "Yes" },
+      { value: "no", label: "No" },
+    ],
+    recommended,
+  });
+  return "value" in answer && answer.value === "yes";
 }
 
 /** The choices in the order shown; fails when the recommended option isn't one of them. */

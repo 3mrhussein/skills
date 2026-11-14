@@ -99,3 +99,32 @@ test("a multi-select asks again for anything but numbers it listed", async () =>
   expect(await prompter.multiSelect(skills)).toEqual(["tdd"]);
   expect(shown().match(/Pick numbers from 1 to 3/g)).toHaveLength(2);
 });
+
+const preselected: MultiSelectRequest = {
+  message: "Which of the set's skills should this machine have?",
+  choices: [
+    { value: "alpha", label: "alpha", picked: true },
+    { value: "beta", label: "beta" },
+    { value: "gamma", label: "gamma", picked: true },
+  ],
+};
+
+test("a multi-select with preselected choices ticks them, and Enter keeps them", async () => {
+  const { prompter, shown } = terminal("\n");
+
+  expect(await prompter.multiSelect(preselected)).toEqual(["alpha", "gamma"]);
+  expect(shown()).toContain(
+    [
+      "Which of the set's skills should this machine have?",
+      "  1. [x] alpha",
+      "  2. [ ] beta",
+      "  3. [x] gamma",
+      "  Type the numbers to take (like 1 3 5-7), all or none; Enter keeps the ticked ones.",
+    ].join("\n"),
+  );
+});
+
+test("a multi-select with preselected choices takes numbers in place of the ticks, or none", async () => {
+  expect(await terminal("2\n").prompter.multiSelect(preselected)).toEqual(["beta"]);
+  expect(await terminal("none\n").prompter.multiSelect(preselected)).toEqual([]);
+});

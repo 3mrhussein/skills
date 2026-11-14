@@ -3,7 +3,7 @@
 import { execFileSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { onTestFinished } from "vitest";
 import { main } from "../src/main.js";
 import type { Env } from "../src/locations.js";
@@ -70,6 +70,12 @@ export interface World {
   skills(args: string[], options?: { cwd?: string }): Promise<SkillsResult>;
   /** The user-level lock, or undefined when nothing is installed. */
   readLock(): Lock | undefined;
+  /** The per-machine file, or undefined when there is none. */
+  readMachineFile(): any;
+  /** The arguments of each `npm` call, in order. The fake `npm i -g @3mrhussein/moro` puts `moro` in `bin`. */
+  npmCalls(): string[];
+  /** Puts an executable `moro` on the world's PATH. */
+  putMoroOnPath(): void;
 }
 
 export interface Lock {
@@ -89,6 +95,21 @@ export function createWorld(options: { set?: Files } = {}): World {
   mkdirSync(remotes);
   const project = join(root, "project");
   mkdirSync(project);
+  // First on the world's PATH, with a fake `npm`, so no test reaches the real one.
+  const bin = join(root, "bin");
+  mkdirSync(bin);
+  const npmLog = join(root, "npm-calls.log");
+  const fakeMoro = join(bin, "moro");
+  writeFileSync(
+    join(bin, "npm"),
+    [
+      "#!/bin/sh",
+      `echo "$*" >> '${npmLog}'`,
+      `if [ "$*" = "i -g @3mrhussein/moro" ]; then printf '#!/bin/sh\\n' > '${fakeMoro}'; chmod +x '${fakeMoro}'; fi`,
+      "",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
   writeFileSync(
     join(home, ".gitconfig"),
     [
@@ -105,7 +126,7 @@ export function createWorld(options: { set?: Files } = {}): World {
 
   // Built from scratch so nothing from the real machine leaks in.
   const env: Env = {
-    PATH: process.env.PATH,
+    PATH: `${bin}${delimiter}${process.env.PATH}`,
     TMPDIR: process.env.TMPDIR,
     HOME: home,
     MORO_SET_REMOTE: `${HOST}3mrhussein/skills.git`,
@@ -195,6 +216,23 @@ export function createWorld(options: { set?: Files } = {}): World {
       } catch {
         return undefined;
       }
+    },
+    readMachineFile() {
+      try {
+        return JSON.parse(readFileSync(join(home, ".config", "moro", "config.json"), "utf8"));
+      } catch {
+        return undefined;
+      }
+    },
+    npmCalls() {
+      try {
+        return readFileSync(npmLog, "utf8").split("\n").filter(Boolean);
+      } catch {
+        return [];
+      }
+    },
+    putMoroOnPath() {
+      writeFileSync(fakeMoro, "#!/bin/sh\n", { mode: 0o755 });
     },
   };
 }
