@@ -42,3 +42,10 @@ function subfolders(setDir: string, folder: string): string[] {
     .map((entry) => entry.name)
     .sort();
 }
+
+/** Every skill in `skills/` with its group, sorted by group, then name. */
+export function skillsWithGroups(setDir: string): { name: string; group: string }[] {
+  return groupsInSet(setDir).flatMap((group) =>
+    subfolders(setDir, join(SKILLS_DIR, group)).map((name) => ({ name, group })),
+  );
+}
