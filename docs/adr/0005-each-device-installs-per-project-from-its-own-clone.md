@@ -2,6 +2,8 @@
 
 Every device clones the set and installs from that clone, never from GitHub. Skills go into each project as copies, picked per project; at user level the set puts only `/setup-moro-skills`. GitHub only carries commits between clones, and moro never fetches or pulls. The owner wants the clone on a device to be the one source of truth there, and each project to hold the skills it uses.
 
+Amended 2026-11-14: the owner also installs at user level, with `moro install --user`, so sessions in projects never set up keep working with the set's skills. It installs from the clone, as a project install does. Bootstrap lists those user-level skills as `installed from the set`, unticked, and a project install labels them `installed (user)` and leaves them unticked.
+
 ## Considered options
 
 - Install at user level from GitHub (`npx skills add 3mrhussein/skills -g`), the earlier plan: one install per device, but the device's own edits and device-only skills had no path in.

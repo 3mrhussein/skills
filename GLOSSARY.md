@@ -124,6 +124,14 @@ _Avoid_: bootstrap skill, setup skill
 Copying the skills a project picks from the device's clone into that project. Rerunning it is how a project catches up with the clone.
 _Avoid_: setup (alone), refresh, sync
 
+**Agent**:
+A coding assistant that a project install puts the skills in front of, such as Claude Code, Codex, GitHub Copilot or Antigravity. Each one reads skills from its own folder, and several share `.agents/skills`.
+_Avoid_: harness, tool, client, IDE
+
+**Install method**:
+How a project install puts a skill into each agent's folder: symlink (one copy in `.agents/skills`, linked from every other agent's folder) or copy (a full copy in each folder).
+_Avoid_: link mode, install type
+
 **Divergence**:
 A difference between a project's installed skills and the clone: the set changed a skill, the project edited its copy, the set no longer holds it, or a set skill isn't installed.
 _Avoid_: drift, staleness, update
