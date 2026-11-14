@@ -11,6 +11,8 @@ import { MORO_VERSION } from "./version.js";
 
 export interface Output {
   write(text: string): void;
+  /** True for a terminal, which may show dim text; piped output gets no escape codes. */
+  isTTY?: boolean;
 }
 
 /** Everything `moro` touches in the outside world, so tests can supply their own. */

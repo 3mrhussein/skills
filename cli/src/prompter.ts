@@ -27,6 +27,8 @@ export interface MultiSelectRequest {
    * Typing a group's name picks the whole group, or drops it when it is already fully picked.
    */
   choices: (Choice & { disabled?: string; picked?: boolean; section?: string; group?: string })[];
+  /** The choices are already on screen, numbered from 1 in this order with their ticks, so only the message and how to answer print. */
+  listed?: boolean;
 }
 
 export interface Prompter {
@@ -82,7 +84,7 @@ export function createTerminalPrompter(streams: {
       let number = 0;
       let section: string | undefined;
       let group: string | undefined;
-      for (const choice of request.choices) {
+      for (const choice of request.listed ? [] : request.choices) {
         if (choice.section !== undefined && choice.section !== section) {
           section = choice.section;
           group = undefined;

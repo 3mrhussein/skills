@@ -7,6 +7,8 @@ export interface LockEntry {
   sourceUrl: string;
   /** The path to the skill's `SKILL.md` in its source. */
   skillPath: string;
+  /** What the folder hashed to at install: a GitHub tree hash, or the `skills` CLI's sha256 folder hash. */
+  skillFolderHash?: string;
 }
 
 /** The installed skills by name; none when there's no lock or the `skills` CLI wouldn't read it. */

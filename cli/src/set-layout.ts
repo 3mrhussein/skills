@@ -5,6 +5,8 @@ import { join } from "node:path";
 
 export const SKILLS_DIR = "skills";
 export const LOCAL_ONLY_DIR = "local-only";
+/** The entry skill: always at user level, the default way to set up a project, and never in a project install. */
+export const ENTRY_SKILL = "setup-moro-skills";
 
 /** The set's folder for a skill, relative to the set's root. */
 export function skillFolder(name: string, group: string): string {

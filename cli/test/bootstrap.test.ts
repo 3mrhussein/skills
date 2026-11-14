@@ -108,9 +108,11 @@ test("the state names what's installed and from where, and other sources' skills
   expect((await world.skills(["add", other.url, "-g", "-y"])).code).toBe(0);
   const source = world.readLock()!.skills.hello!.source;
 
-  const result = await world.run(["bootstrap"], { cwd: world.clone, answers: ["no"] });
+  const result = await world.run(["bootstrap"], { cwd: world.clone });
 
+  expect(result.prompts).toEqual([]);
   expect(result.stdout).toContain(`1 skill is installed at user level, from ${source}.`);
+  expect(result.stdout).toContain("Left at user level: hello.");
   expect(world.readLock()!.skills.hello).toBeDefined();
   expect(readFileSync(join(world.home, ".claude", "skills", "hello", "SKILL.md"), "utf8")).toBe(skillMd("hello"));
   expect(world.readLock()!.skills[SKILL]).toBeDefined();

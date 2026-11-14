@@ -66,9 +66,9 @@ export interface World {
   source(name: string, files: Files): Repo;
   /**
    * Runs `moro`. `answers` script the prompts; `typed` instead feeds the real terminal prompter
-   * those input lines and puts what it shows into `stdout`.
+   * those input lines and puts what it shows into `stdout`. `tty` makes `stdout` a terminal rather than a pipe.
    */
-  run(argv: string[], options?: { answers?: ScriptedAnswer[]; typed?: string; cwd?: string }): Promise<RunResult>;
+  run(argv: string[], options?: { answers?: ScriptedAnswer[]; typed?: string; cwd?: string; tty?: boolean }): Promise<RunResult>;
   /** Clones the set, once; returns the clone's path. */
   cloneSet(options?: { identity?: boolean }): string;
   /** Runs git in the world; returns trimmed stdout. */
@@ -192,7 +192,7 @@ export function createWorld(options: { set?: Files } = {}): World {
       }
       return clone;
     },
-    async run(argv, { answers = [], typed, cwd = project } = {}) {
+    async run(argv, { answers = [], typed, cwd = project, tty = false } = {}) {
       let stdout = "";
       let stderr = "";
       const prompter = typed === undefined ? scriptedPrompter(answers) : terminalPrompter(typed, (text) => void (stdout += text));
@@ -200,7 +200,7 @@ export function createWorld(options: { set?: Files } = {}): World {
         argv,
         env,
         cwd,
-        stdout: { write: (text) => void (stdout += text) },
+        stdout: { write: (text) => void (stdout += text), isTTY: tty },
         stderr: { write: (text) => void (stderr += text) },
         prompter,
       });

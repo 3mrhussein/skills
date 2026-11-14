@@ -6,12 +6,14 @@ import { basename, dirname, join } from "node:path";
 import { findClone } from "./device.js";
 import { cloneCopy, diffFolders, diverge, projectCopy, needsRerun, reportLines, type Divergence, type Label, type SetSkill } from "./divergence.js";
 import { gitRunner } from "./git.js";
-import { RERUN_SETUP, UP_TO_DATE } from "./hints.js";
+import { RERUN_INSTALL, RERUN_SETUP, UP_TO_DATE } from "./hints.js";
+import { readLocations } from "./locations.js";
 import type { MoroIo } from "./main.js";
 import { readManifest } from "./manifest.js";
 import { PROJECT_LOCK, readProjectLock, skillFolders } from "./project.js";
 import { askYesNo, type MultiSelectRequest } from "./prompter.js";
-import { localOnlySkills, LOCAL_ONLY_DIR, skillFolder, skillsWithGroups } from "./set-layout.js";
+import { ENTRY_SKILL, localOnlySkills, LOCAL_ONLY_DIR, skillFolder, skillsWithGroups } from "./set-layout.js";
+import { shadowedPicks } from "./shadowing.js";
 import { runSkills } from "./skills-cli.js";
 import { UserError } from "./user-error.js";
 import { MORO_VERSION } from "./version.js";
@@ -97,7 +99,7 @@ export async function install(io: MoroIo, argv: string[]): Promise<number> {
   if (keepOut && add.length > 0) excludeFromGit(top, excludeFile, add, true);
   else if (localAdds.length > 0) excludeFromGit(top, excludeFile, localAdds, false);
 
-  return summary(io, { add, update, remove, keepOut, reasons });
+  return summary(io, { add, update, remove, keepOut, reasons, shadowed: shadowedPicks(readLocations(io.env), clone, picks) });
 }
 
 /** Bare `moro` in a project: the divergence report and the one next step. */
@@ -162,7 +164,8 @@ async function projectTop(git: ReturnType<typeof gitRunner>, cwd: string): Promi
 function readOffers(clone: string): Offer[] {
   const manifest = readManifest(clone, MORO_VERSION);
   const recommended = new Set(manifest.recommended.map((path) => basename(path)));
-  const shared = skillsWithGroups(clone).map(({ name, group }) => ({ name, group, recommended: recommended.has(name) }));
+  // The entry skill lives at user level, so a project install never offers it.
+  const shared = skillsWithGroups(clone).filter(({ name }) => name !== ENTRY_SKILL).map(({ name, group }) => ({ name, group, recommended: recommended.has(name) }));
   const local = localOnlySkills(clone).map(({ name, group }) => ({ name, group, recommended: true, localOnly: true }));
   for (const offer of local) {
     const twin = shared.find((other) => other.name === offer.name);
@@ -192,16 +195,20 @@ function readRules(clone: string, offers: Offer[]): Rules {
     );
   };
   const required: string[] = [];
+  // The entry skill is already at user level, so a project never installs it, required or needed.
   for (const path of manifest.required ?? []) {
-    if (path.startsWith(`${LOCAL_ONLY_DIR}/`)) continue;
+    if (path.startsWith(`${LOCAL_ONLY_DIR}/`) || basename(path) === ENTRY_SKILL) continue;
     if (!heldPaths.has(path)) wrong(path, "required");
     required.push(basename(path));
   }
+  const dependsOn: Record<string, string[]> = {};
   for (const [key, needs] of Object.entries(manifest.dependsOn)) {
+    if (key === ENTRY_SKILL) continue;
     if (!held.has(key)) wrong(key, "dependsOn");
-    for (const need of needs) if (!held.has(need)) wrong(need, `dependsOn of ${key}`);
+    dependsOn[key] = needs.filter((need) => need !== ENTRY_SKILL);
+    for (const need of dependsOn[key]) if (!held.has(need)) wrong(need, `dependsOn of ${key}`);
   }
-  return { required, dependsOn: manifest.dependsOn };
+  return { required, dependsOn };
 }
 
 /** Why each skill is locked on: required, or needed by a ticked skill (through any depth). */
@@ -308,20 +315,29 @@ function excludeFromGit(top: string, excludeFile: string, names: string[], withL
   appendFileSync(excludeFile, `${lead}${lines.join("\n")}\n`);
 }
 
-function summary(io: MoroIo, result: { add: string[]; update: string[]; remove: string[]; keepOut: boolean; reasons: Map<string, string> }): number {
-  if (result.add.length === 0 && result.update.length === 0 && result.remove.length === 0) {
-    io.stdout.write(`${UP_TO_DATE}\n`);
-    return 0;
-  }
+function summary(
+  io: MoroIo,
+  result: { add: string[]; update: string[]; remove: string[]; keepOut: boolean; reasons: Map<string, string>; shadowed: string[] },
+): number {
+  const changed = result.add.length > 0 || result.update.length > 0 || result.remove.length > 0;
   if (result.add.length > 0) io.stdout.write(`Installed: ${result.add.join(", ")}.\n`);
   for (const [name, reason] of result.reasons) {
     if (result.add.includes(name)) io.stdout.write(`  ${name}: ${reason}.\n`);
   }
   if (result.update.length > 0) io.stdout.write(`Updated: ${result.update.join(", ")}.\n`);
   if (result.remove.length > 0) io.stdout.write(`Removed: ${result.remove.join(", ")}.\n`);
-  const next = result.keepOut
+  const restart = result.keepOut
     ? "restart your agent in this project; the skills are kept out of git."
     : `restart your agent in this project, and commit ${PROJECT_LOCK} and the new skill folders.`;
-  io.stdout.write(`\nNext: ${next} Run \`moro install\` again to change the picks.\n`);
+  const picks = `Rerun \`/${ENTRY_SKILL}\` (or \`moro install\`) to change the picks.`;
+  // A shadowed pick makes retiring the user-level copy the one next step.
+  if (result.shadowed.length > 0) {
+    const copies = result.shadowed.length === 1 ? "copy" : "copies";
+    const then = changed ? ` Once it's gone, ${restart}` : "";
+    io.stdout.write(
+      `${changed ? "\n" : ""}Shadowed at user level: ${result.shadowed.join(", ")}. Your agent loads the user-level ${copies}, not this project's.${then}\n${RERUN_INSTALL}\n`,
+    );
+  } else if (changed) io.stdout.write(`\nNext: ${restart} ${picks}\n`);
+  else io.stdout.write(`${UP_TO_DATE}\n`);
   return 0;
 }

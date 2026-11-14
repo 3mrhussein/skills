@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { agentFolders, readProjectLock } from "./project.js";
-import { LOCAL_ONLY_DIR, skillFolder } from "./set-layout.js";
+import { ENTRY_SKILL, LOCAL_ONLY_DIR, skillFolder } from "./set-layout.js";
 
 export const LABELS = ["set changed", "edited here", "gone from the set", "not installed", "loose"] as const;
 export type Label = (typeof LABELS)[number];
@@ -48,7 +48,8 @@ export function diverge(top: string, clone: string, skills: SetSkill[], current:
     if (hashFolder(cloneCopy(clone, skill)) !== recorded) add(skill.name, "set changed");
   }
   const held = new Set(skills.map((skill) => skill.name));
-  const gone = current.filter((name) => !held.has(name) && fromClone(top, clone, lock[name]?.source));
+  // The entry skill belongs at user level; a project's copy of it is left alone, not reported.
+  const gone = current.filter((name) => !held.has(name) && name !== ENTRY_SKILL && fromClone(top, clone, lock[name]?.source));
   for (const name of gone) add(name, "gone from the set");
   return { labels, gone };
 }
@@ -80,7 +81,7 @@ export function diffFolders(projectFolder: string, cloneFolder: string): string 
 }
 
 /** The `skills` CLI's folder hash: sha256 over each file's relative path and bytes, sorted by path. */
-function hashFolder(folder: string): string {
+export function hashFolder(folder: string): string {
   const files: { path: string; content: Buffer }[] = [];
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
