@@ -1,20 +1,16 @@
 {
   "name": "@3mrhussein/moro",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Set up, refresh, add to and sync moro's skill set.",
   "type": "module",
   "bin": {
     "moro": "dist/bin.js"
   },
-  "files": [
-    "dist"
-  ],
   "engines": {
     "node": ">=22.20.0"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "prepack": "npm run build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

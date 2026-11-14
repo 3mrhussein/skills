@@ -16,7 +16,7 @@ function manifestWith(
   sources: Record<string, { repo: string; rename: [string, string][] }>,
   skills: Record<string, { source: string; path: string; pin: string; skipped: string[] }> = {},
 ): string {
-  return `${JSON.stringify({ moro: "0.1.0", sources, skills }, null, 2)}\n`;
+  return `${JSON.stringify({ moro: "0.2.0", sources, skills }, null, 2)}\n`;
 }
 
 test("with no skill named, add picks from the source, asks each key, group, recommended and dependencies, then pushes", async () => {

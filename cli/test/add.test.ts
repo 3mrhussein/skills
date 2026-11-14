@@ -22,7 +22,7 @@ test("intake copies the source's skill folder into skills/, writes the manifest 
   expect(readFileSync(join(clone, "skills/misc/hello/SKILL.md"), "utf8")).toBe(skillMd("hello"));
   expect(readFileSync(join(clone, "skills/misc/hello/references/notes.md"), "utf8")).toBe("Some notes.\n");
   expect(readManifest(clone)).toEqual({
-    moro: "0.1.0",
+    moro: "0.2.0",
     sources: { tools: { repo: source.url, rename: [] } },
     skills: { hello: { source: "tools", path: "skills/hello", pin: source.head(), skipped: [] } },
     recommended: [],
@@ -111,7 +111,7 @@ test("the key is the frontmatter name, while path keeps the source's own folder"
 });
 
 function manifestWith(sources: Record<string, { repo: string; rename: [string, string][] }>): string {
-  return `${JSON.stringify({ moro: "0.1.0", sources, skills: {} }, null, 2)}\n`;
+  return `${JSON.stringify({ moro: "0.2.0", sources, skills: {} }, null, 2)}\n`;
 }
 
 test("a new source whose repo name is taken gets owner-repo as its id", async () => {
