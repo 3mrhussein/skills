@@ -55,15 +55,11 @@ export async function bootstrap(io: MoroIo, argv: string[]): Promise<number> {
 
   const lines = [
     ...(recorded ? [] : ["Recorded the clone."]),
-    ...(retired.removed.length > 0 ? [`Removed: ${retired.removed.join(", ")}.`] : []),
+    ...(retired.length > 0 ? [`Removed: ${retired.join(", ")}.`] : []),
     ...(current ? [] : [`${installed ? "Reinstalled" : "Installed"}: ${SKILL}.`]),
   ];
   say(`\n${lines.length > 0 ? `${lines.join("\n")}\n\nNext: open a project and run \`/setup-moro-skills\`` : "Up to date."}`);
   return 0;
-}
-
-interface Retirement {
-  removed: string[];
 }
 
 /**
@@ -76,18 +72,18 @@ async function retireOthers(
   lock: Record<string, LockEntry>,
   yes: boolean,
   say: (text: string) => void,
-): Promise<Retirement> {
+): Promise<string[]> {
   const skillsDir = join(locations.home, ".agents", "skills");
   const linksDir = join(locations.home, ".claude", "skills");
   const locked = Object.keys(lock).filter((name) => name !== SKILL);
   const loose = [...new Set([...entries(skillsDir), ...entries(linksDir)])].filter((name) => name !== SKILL && name !== SYNCED_DIR && !(name in lock));
   const others = [...locked, ...loose].sort();
-  if (others.length === 0) return { removed: [] };
+  if (others.length === 0) return [];
 
   say(`\nOther user-level skills: ${listed(others)}.`);
   if (!yes && !(await askYesNo(io.prompter, "Remove them, so nothing shadows a project's install? A snapshot is taken first.", "yes"))) {
     say(`Kept: ${listed(others)}. Each one shadows a project's install of a skill with the same name.`);
-    return { removed: [] };
+    return [];
   }
 
   const archive = await snapshot(locations, [skillsDir, linksDir, locations.lockFile]);
@@ -101,7 +97,7 @@ async function retireOthers(
   for (const name of loose) {
     for (const dir of [skillsDir, linksDir]) rmSync(join(dir, name), { recursive: true, force: true });
   }
-  return { removed: others };
+  return others;
 }
 
 /** The names in a folder, none when it's absent. */
