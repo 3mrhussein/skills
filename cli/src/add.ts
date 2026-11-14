@@ -511,7 +511,7 @@ function summary(plan: Plan, othersInSet: string[]): string[] {
 }
 
 /** Pushes the set's clone, asking first unless `--yes`; ends with the next step. */
-async function offerPush(io: MoroIo, git: Git, setDir: string, yes: boolean): Promise<number> {
+export async function offerPush(io: MoroIo, git: Git, setDir: string, yes: boolean): Promise<number> {
   if (!yes && !(await askYesNo(io.prompter, "Push now?", "yes"))) {
     io.stdout.write("Not pushed: no machine sees this until you push.\n\nNext: run `git push` in the set's clone.\n");
     return 0;

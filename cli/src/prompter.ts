@@ -10,8 +10,8 @@ export interface Choice {
 export interface SelectRequest {
   message: string;
   choices: Choice[];
-  /** The value of the recommended choice. It is always listed first. */
-  recommended: string;
+  /** The value of the recommended choice. It is always listed first. Without one there is no default: Enter doesn't answer. */
+  recommended?: string;
   /** When set, the owner may type an answer instead; the text names what to type. */
   allowTyped?: string;
 }
@@ -56,7 +56,7 @@ export function createTerminalPrompter(streams: {
       const out = streams.output;
       out.write(`\n${request.message}\n`);
       ordered.forEach((choice, index) => {
-        const mark = index === 0 ? " (recommended)" : "";
+        const mark = index === 0 && request.recommended !== undefined ? " (recommended)" : "";
         out.write(`  ${index + 1}. ${choice.label}${mark}\n`);
       });
       if (request.allowTyped) out.write(`  Or type ${request.allowTyped}.\n`);
@@ -64,12 +64,12 @@ export function createTerminalPrompter(streams: {
       for (;;) {
         out.write("> ");
         const text = (await nextLine()).trim();
-        if (text === "") return { value: ordered[0]!.value };
+        if (text === "" && request.recommended !== undefined) return { value: ordered[0]!.value };
         const isNumber = /^\d+$/.test(text);
         const picked = isNumber ? ordered[Number(text) - 1] : undefined;
         if (picked) return { value: picked.value };
         if (request.allowTyped && !isNumber) return { typed: text };
-        out.write(`Pick a number from 1 to ${ordered.length}, or press Enter for 1.\n`);
+        out.write(`Pick a number from 1 to ${ordered.length}${request.recommended === undefined ? "" : ", or press Enter for 1"}.\n`);
       }
     },
     async multiSelect(request) {
@@ -134,6 +134,7 @@ export async function askYesNo(prompter: Prompter, message: string, recommended:
 
 /** The choices in the order shown; fails when the recommended option isn't one of them. */
 export function recommendedFirst(request: SelectRequest): Choice[] {
+  if (request.recommended === undefined) return request.choices;
   const recommended = request.choices.find((choice) => choice.value === request.recommended);
   if (!recommended) throw new Error(`The recommended option isn't a choice: ${request.recommended}`);
   return [recommended, ...request.choices.filter((choice) => choice !== recommended)];
