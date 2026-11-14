@@ -1,0 +1,37 @@
+{
+  "moro": "0.2.0",
+  "sources": {
+    "matt": {
+      "repo": "mattpocock/skills",
+      "rename": [
+        [
+          "setup-matt-pocock-skills",
+          "setup-moro-skills"
+        ],
+        [
+          "ask-matt",
+          "ask-moro"
+        ],
+        [
+          "Matt Pocock's",
+          "moro's"
+        ],
+        [
+          "Setup Matt Pocock Skills",
+          "Setup Moro Skills"
+        ],
+        [
+          "Ask Matt",
+          "Ask Moro"
+        ],
+        [
+          "mattpocock/skills",
+          "3mrhussein/skills"
+        ]
+      ]
+    }
+  },
+  "skills": {},
+  "recommended": [],
+  "dependsOn": {}
+}
