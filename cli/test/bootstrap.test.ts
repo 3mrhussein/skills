@@ -108,7 +108,7 @@ test("the state names what's installed and from where, and other sources' skills
   expect((await world.skills(["add", other.url, "-g", "-y"])).code).toBe(0);
   const source = world.readLock()!.skills.hello!.source;
 
-  const result = await world.run(["bootstrap"], { cwd: world.clone });
+  const result = await world.run(["bootstrap"], { cwd: world.clone, answers: ["no"] });
 
   expect(result.stdout).toContain(`1 skill is installed at user level, from ${source}.`);
   expect(world.readLock()!.skills.hello).toBeDefined();
@@ -116,12 +116,12 @@ test("the state names what's installed and from where, and other sources' skills
   expect(world.readLock()!.skills[SKILL]).toBeDefined();
 });
 
-test("bootstrap takes no arguments", async () => {
+test("bootstrap takes no arguments but --yes", async () => {
   const world = worldWithSet();
 
-  const result = await world.run(["bootstrap", "--yes"], { cwd: world.clone });
+  const result = await world.run(["bootstrap", "--bogus"], { cwd: world.clone });
 
   expect(result.code).toBe(1);
-  expect(result.stderr).toContain("Unknown option: --yes");
+  expect(result.stderr).toContain("Unknown option: --bogus");
   expect(world.readDeviceFile()).toBeUndefined();
 });

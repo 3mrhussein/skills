@@ -1,12 +1,15 @@
 // `moro bootstrap`: run from the set's clone. Records the clone in the device
 // file and puts `setup-moro-skills` at user level, installed from the clone.
-import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync } from "node:fs";
-import { join } from "node:path";
+import { execFile } from "node:child_process";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmSync } from "node:fs";
+import { join, relative } from "node:path";
+import { promisify } from "node:util";
 import { readDevice, writeDevice } from "./device.js";
 import { gitRunner } from "./git.js";
 import { isFrom, type LockEntry, readLock } from "./lock.js";
-import { readLocations } from "./locations.js";
+import { type Locations, readLocations } from "./locations.js";
 import type { MoroIo } from "./main.js";
+import { askYesNo } from "./prompter.js";
 import { runSkills } from "./skills-cli.js";
 import { UserError } from "./user-error.js";
 
@@ -14,7 +17,8 @@ const SKILL = "setup-moro-skills";
 const USAGE = "moro bootstrap";
 
 export async function bootstrap(io: MoroIo, argv: string[]): Promise<number> {
-  const [arg] = argv;
+  const yes = argv.includes("--yes") || argv.includes("-y");
+  const [arg] = argv.filter((a) => a !== "--yes" && a !== "-y");
   if (arg !== undefined) {
     throw new UserError(`${arg.startsWith("-") ? `Unknown option: ${arg}` : `moro bootstrap takes no ${arg}.`}\n\nNext: run \`${USAGE}\` in the set's clone`);
   }
@@ -32,6 +36,8 @@ export async function bootstrap(io: MoroIo, argv: string[]): Promise<number> {
     sameFiles(join(clone, "skills", SKILL), join(locations.home, ".agents", "skills", SKILL));
   say(stateParagraph(lock, clone));
 
+  const retired = await retireOthers(io, locations, lock, yes, say);
+
   // The device file is written first, so a failed install leaves it for the rerun.
   if (!recorded) writeDevice(locations.deviceFile, { clone });
   if (!current) {
@@ -43,10 +49,82 @@ export async function bootstrap(io: MoroIo, argv: string[]): Promise<number> {
 
   const lines = [
     ...(recorded ? [] : ["Recorded the clone."]),
+    ...(retired.removed.length > 0 ? [`Removed: ${retired.removed.join(", ")}.`] : []),
     ...(current ? [] : [`${installed ? "Reinstalled" : "Installed"}: ${SKILL}.`]),
   ];
   say(`\n${lines.length > 0 ? `${lines.join("\n")}\n\nNext: open a project and run \`/setup-moro-skills\`` : "Up to date."}`);
   return 0;
+}
+
+interface Retirement {
+  removed: string[];
+}
+
+/**
+ * Leaves user level holding only `setup-moro-skills`, so nothing shadows a project's copy.
+ * Lists the lock's other entries and the loose folders, asks once, snapshots, then removes.
+ */
+async function retireOthers(
+  io: MoroIo,
+  locations: Locations,
+  lock: Record<string, LockEntry>,
+  yes: boolean,
+  say: (text: string) => void,
+): Promise<Retirement> {
+  const skillsDir = join(locations.home, ".agents", "skills");
+  const linksDir = join(locations.home, ".claude", "skills");
+  const locked = Object.keys(lock).filter((name) => name !== SKILL);
+  const loose = [...new Set([...entries(skillsDir), ...entries(linksDir)])].filter((name) => name !== SKILL && !(name in lock));
+  const others = [...locked, ...loose].sort();
+  if (others.length === 0) return { removed: [] };
+
+  say(`\nOther user-level skills: ${listed(others)}.`);
+  if (!yes && !(await askYesNo(io.prompter, "Remove them, so nothing shadows a project's install? A snapshot is taken first.", "yes"))) {
+    say(`Kept: ${listed(others)}. Each one shadows a project's install of a skill with the same name.`);
+    return { removed: [] };
+  }
+
+  const archive = await snapshot(locations, [skillsDir, linksDir, locations.lockFile]);
+  say(`Snapshot: ${archive}\nTo restore by hand: tar -xzf ${archive} -C /`);
+  if (locked.length > 0) {
+    const result = await runSkills(["remove", "-g", "-y", ...locked], { env: io.env, cwd: locations.home });
+    if (result.code !== 0) {
+      throw new UserError(`Removing ${listed(locked)} failed:\n${result.output.trim()}\n\nNext: rerun \`${USAGE}\` in the set's clone.`);
+    }
+  }
+  for (const name of loose) {
+    for (const dir of [skillsDir, linksDir]) rmSync(join(dir, name), { recursive: true, force: true });
+  }
+  return { removed: others };
+}
+
+/** The names in a folder, none when it's absent. */
+function entries(dir: string): string[] {
+  try {
+    return readdirSync(dir);
+  } catch {
+    return [];
+  }
+}
+
+/** Tars what exists of `paths` into `<config>/backups/<date>.tar.gz`; returns that path. */
+async function snapshot(locations: Locations, paths: string[]): Promise<string> {
+  const backups = join(locations.configDir, "backups");
+  mkdirSync(backups, { recursive: true });
+  const date = new Date().toISOString().slice(0, 10);
+  let archive = join(backups, `${date}.tar.gz`);
+  for (let n = 2; existsSync(archive); n++) archive = join(backups, `${date}-${n}.tar.gz`);
+  const present = paths.filter((path) => existsSync(path) || isLink(path)).map((path) => relative("/", path));
+  await promisify(execFile)("tar", ["-czf", archive, "-C", "/", ...present]);
+  return archive;
+}
+
+function isLink(path: string): boolean {
+  try {
+    return lstatSync(path).isSymbolicLink();
+  } catch {
+    return false;
+  }
 }
 
 /** The root of the clone of the set that `io.cwd` is in, or a stop saying to run it from the clone. */
