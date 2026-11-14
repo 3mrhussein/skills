@@ -99,6 +99,34 @@ test("--all takes every skill not already in the set, and --yes asks nothing and
   expect(remoteHead(world)).toBe(world.git(["rev-parse", "HEAD"], clone));
 });
 
+test("--all leaves out skills in hidden folders, as the skills CLI does, when the source has others", async () => {
+  const world = createWorld();
+  world.source("acme/tools", {
+    "skills/find/SKILL.md": skillMd("find"),
+    ".automations/triage/skills/triage/SKILL.md": skillMd("triage"),
+    ".vc/workflows/triage/skills/triage/SKILL.md": skillMd("triage"),
+  });
+  const clone = world.cloneSet();
+  world.recordClone(clone);
+
+  const result = await world.run(["add", "acme/tools", "--all", "--yes"], { cwd: clone });
+
+  expect(result.code, result.stderr).toBe(0);
+  expect(Object.keys(readManifest(clone).skills)).toEqual(["find"]);
+});
+
+test("a source whose skills are all in hidden folders still offers them", async () => {
+  const world = createWorld();
+  world.source("acme/tools", { ".claude/skills/find/SKILL.md": skillMd("find") });
+  const clone = world.cloneSet();
+  world.recordClone(clone);
+
+  const result = await world.run(["add", "acme/tools", "--all", "--yes"], { cwd: clone });
+
+  expect(result.code, result.stderr).toBe(0);
+  expect(readManifest(clone).skills.find?.path).toBe(".claude/skills/find");
+});
+
 test("--all with nothing new adds nothing", async () => {
   const world = createWorld({
     set: {

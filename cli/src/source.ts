@@ -56,10 +56,16 @@ async function resolveCommit(git: Git, dir: string, revision: string): Promise<s
     });
 }
 
-/** Every folder holding a `SKILL.md`, with its frontmatter `name`, under `subpath` when given. */
+/**
+ * Every folder holding a `SKILL.md`, with its frontmatter `name`, under `subpath` when given.
+ * As in the skills CLI, skills in hidden folders (a repo's `.automations/`, say) count only
+ * when the source has no others.
+ */
 export function findSkills(dir: string, subpath?: string): FoundSkill[] {
   const inSubpath = (path: string) => !subpath || path === subpath || path.startsWith(`${subpath}/`);
-  return readdirSync(dir, { recursive: true, encoding: "utf8" })
+  const hidden = (path: string) =>
+    (subpath ? path.slice(subpath.length) : path).split("/").some((part) => part.startsWith(".") && part !== ".");
+  const found = readdirSync(dir, { recursive: true, encoding: "utf8" })
     .filter((path) => path.endsWith("SKILL.md") && !path.split("/").includes(".git"))
     .filter((path) => path === "SKILL.md" || path.endsWith("/SKILL.md"))
     .flatMap((path) => {
@@ -67,6 +73,8 @@ export function findSkills(dir: string, subpath?: string): FoundSkill[] {
       return name ? [{ name, path: dirname(path) }] : [];
     })
     .filter((skill) => inSubpath(skill.path));
+  const visible = found.filter((skill) => !hidden(skill.path));
+  return visible.length > 0 ? visible : found;
 }
 
 /** Every file in a skill's folder, verbatim. */
