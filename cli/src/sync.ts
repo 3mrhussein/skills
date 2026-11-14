@@ -4,6 +4,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, w
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { offerPush, requireRepoIdentity } from "./add.js";
+import { checkWarning, impactSummary } from "./check.js";
 import { findClone } from "./device.js";
 import { UP_TO_DATE } from "./hints.js";
 import { frontmatterName } from "./frontmatter.js";
@@ -333,7 +334,7 @@ async function interactive(io: MoroIo, git: Git, setDir: string, manifest: Manif
           });
           choice = "value" in answer ? answer.value : "later";
           if (choice !== "show") break;
-          io.stdout.write(`${await describe(git, skill)}\n`);
+          io.stdout.write(`${await describe(git, setDir, skill)}\n`);
         }
       }
       if (choice === "later") {
@@ -361,6 +362,8 @@ async function interactive(io: MoroIo, git: Git, setDir: string, manifest: Manif
     if (out.length > 0) io.stdout.write(`${out.join("\n")}\n`);
 
     let code = reportUnreachable(io, found) ? 1 : 0;
+    const warning = accepted.length > 0 ? checkWarning(setDir) : "";
+    if (warning) io.stdout.write(`\n${warning.trimEnd()}\n`);
     if (accepted.length + skipped.length > 0) {
       io.stdout.write("\n");
       code = (await offerPush(io, git, setDir, yes)) || code;
@@ -399,7 +402,7 @@ async function show(io: MoroIo, git: Git, setDir: string, manifest: Manifest, ke
       io.stdout.write(`${key} has no upstream changes since its pin.\n\nNext: run \`moro sync status\`.\n`);
       return 0;
     }
-    io.stdout.write(`${await describe(git, skill)}\n\nNext: run \`moro sync accept ${key}\` or \`moro sync skip ${key}\`.\n`);
+    io.stdout.write(`${await describe(git, setDir, skill)}\n\nNext: run \`moro sync accept ${key}\` or \`moro sync skip ${key}\`.\n`);
     return 0;
   } finally {
     release(fetches);
@@ -407,12 +410,13 @@ async function show(io: MoroIo, git: Git, setDir: string, manifest: Manifest, ke
 }
 
 /** What `show` prints for one waiting skill. */
-async function describe(git: Git, skill: Pending): Promise<string> {
+async function describe(git: Git, setDir: string, skill: Pending): Promise<string> {
   const key = skill.key;
   const merged = skill.removed ? undefined : await mergeSkill(git, skill);
   const out = [
     `${key}: ${skill.entry.pin.slice(0, 7)} to ${skill.source.pin.slice(0, 7)} in ${skill.entry.source}`,
     skill.handEdits.length > 0 ? `Hand edits: ${skill.handEdits.join(", ")}` : "Hand edits: none",
+    impactSummary(setDir, key),
   ];
   if (skill.removed) {
     out.push(`Removed upstream: accept deletes ${skill.folder} from the set, skip keeps it as an own skill.`);
@@ -619,7 +623,7 @@ async function decide(
       : action === "accept"
         ? `took the changes since ${pin.slice(0, 7)}, pin now ${skill.source.pin.slice(0, 7)}`
         : `kept the copy as it is, pin now ${skill.source.pin.slice(0, 7)}`;
-    io.stdout.write(`${verb} ${key}: ${detail}, in one commit.\n\n${NOT_PUSHED}`);
+    io.stdout.write(`${verb} ${key}: ${detail}, in one commit.\n\n${action === "accept" ? checkWarning(setDir) : ""}${NOT_PUSHED}`);
     return 0;
   } finally {
     release(fetches);

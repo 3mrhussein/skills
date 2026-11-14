@@ -5,7 +5,7 @@ description: Drive `moro add` and `moro sync` while developing the set. Use when
 
 # Manage moro skills
 
-Run from the set's clone. Drive `moro` through its no-prompt modes (`--yes`, `status`, `show`, `accept`, `skip`) and put each decision to the owner as a selection: recommended option first, a typed answer allowed. The owner never meets a CLI prompt.
+Run from the set's clone. Drive `moro` through its no-prompt modes (`--yes`, `status`, `show`, `accept`, `skip`, `check --json`) and put each decision to the owner as a selection: recommended option first, a typed answer allowed. The owner never meets a CLI prompt.
 
 ## Closing lines
 
@@ -23,11 +23,16 @@ Done when `moro` printed `Added …` and every named dependency is in the set or
 ## Sync
 
 1. Run `moro sync status`. It only reads; `accept`, `skip` and bare `moro sync` also follow upstream moves and re-render changed rename rules, each in its own commit.
-2. For each listed skill, run `moro sync show <skill>` and sum up the diff in a few lines: what changed, whether it touches a hand edit, whether it brings Matt names the rename rules miss.
+2. For each listed skill, run `moro sync show <skill>` and sum up the diff in a few lines: what changed, whether it touches a hand edit, whether it brings Matt names the rename rules miss, and its `Impact:` line (the skills that call it, which the change reaches too).
 3. Ask accept, skip or later. Put accept first when the change merges cleanly without touching a hand edit (no conflict, no hand-edited file changed upstream, not removed upstream); otherwise put later or skip first and say why. Name any uncovered Matt lines either way.
 4. Run `moro sync accept <skill>` or `moro sync skip <skill>`. Later runs nothing.
+5. After each accept, run `moro check --json` and explain each finding in one line: which skill calls which, and why it doesn't fit. Offer its fix as a selection, the fix first and "leave it" second:
+   - `missing`: add the called skill with `moro add`, or reword the call.
+   - `user-invoked`: reword the call as an instruction for the owner to run `/<skill>`.
+   - `undeclared` or `stale`: add the call to, or drop it from, the caller's `dependsOn` in `manifest.json`.
+   - `required` or `router`: restore the required skill, or name the recommended skill in `ask-moro`.
 
-Done when every listed skill is accepted, skipped or left for later.
+Done when every listed skill is accepted, skipped or left for later, and every check finding is fixed or left by the owner.
 
 ## Conflicts
 
