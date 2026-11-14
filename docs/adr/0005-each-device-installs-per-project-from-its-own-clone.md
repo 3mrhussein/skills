@@ -1,6 +1,6 @@
 # Each device installs per project, from its own clone
 
-Every device clones the set and installs from that clone, never from GitHub. Skills go into each project as copies, picked per project; user level holds only `/setup-moro-skills`. GitHub only carries commits between clones, and moro never fetches or pulls. The owner wants the clone on a device to be the one source of truth there, and each project to hold the skills it uses.
+Every device clones the set and installs from that clone, never from GitHub. Skills go into each project as copies, picked per project; at user level the set puts only `/setup-moro-skills`. GitHub only carries commits between clones, and moro never fetches or pulls. The owner wants the clone on a device to be the one source of truth there, and each project to hold the skills it uses.
 
 ## Considered options
 
@@ -11,5 +11,5 @@ Every device clones the set and installs from that clone, never from GitHub. Ski
 ## Consequences
 
 - `skills update` skips local-path installs, so a project only catches up when its project install reruns. The divergence scan says when it should.
-- A user-level skill shadows a project skill of the same name in Claude Code, so bootstrap retires every other user-level skill.
+- A user-level skill shadows a project skill of the same name in Claude Code, so bootstrap retires the shadowing skills the owner picks. Other user-level skills stay: the owner may keep skills the set doesn't hold, and they hide nothing.
 - The CLI is built from the clone and is never published to npm.
