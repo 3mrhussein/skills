@@ -14,15 +14,16 @@ Scaffold the per-repo configuration that the engineering skills assume:
 
 This is a prompt-driven skill, not a deterministic script. Explore, present what you found, confirm with the user, then write.
 
-## First: install skills into this project
+## First: install skills
 
 Put every question to the owner as a selection, recommended option first, a typed answer allowed. Pass the answers to `moro install` as flags, so no CLI prompt opens.
 
-1. Run `moro` in the project. Relay the lines under `This project against the set:`, if any. If `moro` isn't found, tell the owner to run `./install.sh` in the set's clone, then stop.
-2. Ask which skills the project should have. List the skills in `<clone>/skills/<group>/` under their groups and those in `<clone>/skills.local/` under `skills.local`, all but `setup-moro-skills`, which stays at user level; the clone is the `clone` in `~/.config/moro/config.json`. Tick the manifest's `recommended` ones on a first install, and the skills in the project's `skills-lock.json` on a rerun. `moro` adds required skills and dependencies itself.
-3. For each pick the report labels `edited here` or `loose`, show `diff -ru <project copy> <clone copy>` and ask whether the set's copy replaces it (no first).
-4. On a first install, ask whether to keep the skills out of git or commit them (keep out first).
-5. Run `moro install --pick <skills…> [--keep-out | --commit] [--use-set-copy <skills…>]` and relay its closing lines word for word, including any `Shadowed at user level:` warning and its `Next:` line.
+1. Run `moro` in the project. Relay the lines under `This project against the set:` or `User level against the set:`, if any. If `moro` isn't found, tell the owner to run `./install.sh` in the set's clone, then stop.
+2. Ask where the skills go: this project (first), or user level, for every project on this device.
+3. Ask which skills to install. List the skills in `<clone>/skills/<group>/` under their groups and those in `<clone>/skills.local/` under `skills.local`, all but `setup-moro-skills`, which bootstrap keeps at user level; the clone is the `clone` in `~/.config/moro/config.json`. On a first install tick the manifest's `recommended` ones, leaving out any the report labels `installed (user)`; on a rerun tick the installed ones. `moro` adds required skills and dependencies itself.
+4. For each pick the report labels `edited here` or `loose`, show `diff -ru <installed copy> <clone copy>` and ask whether the set's copy replaces it (no first).
+5. On a project's first install, ask whether to keep the skills out of git or commit them (keep out first).
+6. Run `moro install [--user] --pick <skills…> [--keep-out | --commit] [--use-set-copy <skills…>]` and relay its closing lines word for word, including any `Not installed:`, `Also at user level:` or `Shadowed at user level:` line and the `Next:` line.
 
 Done when the summary printed `Up to date.` or its `Installed`, `Updated` and `Removed` lines.
 
