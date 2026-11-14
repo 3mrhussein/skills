@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { createWorld, readManifest, SET_IDENTITY, skillMd, type World } from "./world.js";
@@ -92,20 +92,125 @@ test("accept takes the change, keeps a hand edit that doesn't conflict, moves th
   expect((await world.run(["sync", "status"])).stdout).toContain("Up to date.");
 });
 
-test("accept that would conflict changes nothing", async () => {
-  const { world, source, clone, pin } = await setWithTools();
-  source.commit({ "skills/hello/SKILL.md": skillMd("hello").replace("The hello skill.", "Upstream wording.") });
+const markers = (text: string) => /^<<<<<<< /m.test(text);
+
+test("a conflicting accept leaves diff3 markers, moves the pin and holds the commit until they are gone", async () => {
+  const { world, source, clone } = await setWithTools();
+  const head = source.commit({ "skills/hello/SKILL.md": skillMd("hello").replace("The hello skill.", "Upstream wording.") });
   const file = join(clone, "skills/misc/hello/SKILL.md");
   writeFileSync(file, skillMd("hello").replace("The hello skill.", "My wording."));
   world.git(["commit", "-qam", "my edit"], clone);
+  const commits = world.git(["rev-list", "--count", "HEAD"], clone);
+
+  const accepted = await world.run(["sync", "accept", "hello"]);
+
+  expect(accepted.code).toBe(1);
+  expect(accepted.stdout).toContain("SKILL.md");
+  expect(accepted.stdout).toContain("conflict");
+  const text = readFileSync(file, "utf8");
+  expect(markers(text)).toBe(true);
+  expect(text).toContain("||||||| at the pin");
+  expect(readManifest(clone).skills.hello.pin).toBe(head);
+  expect(world.git(["rev-list", "--count", "HEAD"], clone)).toBe(commits);
+
+  const blocked = await world.run(["sync", "accept", "hello"]);
+  expect(blocked.code).toBe(1);
+  expect(blocked.stderr).toContain("SKILL.md");
+  expect(world.git(["rev-list", "--count", "HEAD"], clone)).toBe(commits);
+
+  writeFileSync(file, skillMd("hello").replace("The hello skill.", "Both wordings."));
+  const done = await world.run(["sync", "accept", "hello"]);
+  expect(done.code, done.stderr).toBe(0);
+  expect(logOf(world, clone)[0]).toBe(`${SET_IDENTITY}|sync: accept hello`);
+  expect(readFileSync(file, "utf8")).toContain("Both wordings.");
+  expect(world.git(["status", "--porcelain"], clone)).toBe("");
+});
+
+test("show flags a conflict on accept", async () => {
+  const { world, source, clone } = await setWithTools();
+  source.commit({ "skills/hello/SKILL.md": skillMd("hello").replace("The hello skill.", "Upstream wording.") });
+  writeFileSync(join(clone, "skills/misc/hello/SKILL.md"), skillMd("hello").replace("The hello skill.", "My wording."));
+  world.git(["commit", "-qam", "my edit"], clone);
+  expect((await world.run(["sync", "show", "hello"])).stdout).toContain("Accept would conflict in: SKILL.md");
+});
+
+test("a pure move updates the path without asking and keeps the set's folder", async () => {
+  const { world, source, clone } = await setWithTools();
+  const head = source.commit({ "skills/engineering/hello/SKILL.md": skillMd("hello") }, "Move hello", ["skills/hello"]);
+  const before = world.git(["rev-parse", "HEAD:skills/misc/hello"], clone);
+
+  const result = await world.run(["sync", "status"]);
+
+  expect(result.code, result.stderr).toBe(0);
+  expect(result.stdout).toContain("Up to date.");
+  expect(readManifest(clone).skills.hello).toMatchObject({ path: "skills/engineering/hello", pin: head });
+  expect(world.git(["rev-parse", "HEAD:skills/misc/hello"], clone)).toBe(before);
+  expect(world.git(["status", "--porcelain"], clone)).toBe("");
+  expect(logOf(world, clone)[0]).toContain("sync: ");
+});
+
+test("a move with changes follows the skill by its upstream name and show flags the move", async () => {
+  const { world, source, clone } = await setWithTools();
+  const head = source.commit(
+    { "skills/engineering/hello/SKILL.md": `${skillMd("hello")}More.\n` },
+    "Move and change hello",
+    ["skills/hello"],
+  );
+
+  const shown = await world.run(["sync", "show", "hello"]);
+  expect(shown.stdout).toContain("Moved: skills/hello to skills/engineering/hello");
+  expect(shown.stdout).toContain("+More.");
+
+  const result = await world.run(["sync", "accept", "hello"]);
+  expect(result.code, result.stderr).toBe(0);
+  expect(readManifest(clone).skills.hello).toMatchObject({ path: "skills/engineering/hello", pin: head });
+  expect(readFileSync(join(clone, "skills/misc/hello/SKILL.md"), "utf8")).toContain("More.");
+});
+
+async function setWithGraph() {
+  const made = await setWithTools();
+  const manifest = readManifest(made.clone);
+  manifest.recommended = ["skills/misc/hello", "skills/misc/other"];
+  manifest.required = ["skills/misc/hello"];
+  manifest.dependsOn = { other: ["hello"], hello: ["other"] };
+  writeFileSync(join(made.clone, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+  made.world.git(["commit", "-qam", "graph"], made.clone);
+  made.source.commit({}, "Remove hello", ["skills/hello"]);
+  return made;
+}
+
+test("a skill removed upstream is deleted on accept and dropped from recommended, required and dependsOn", async () => {
+  const { world, clone } = await setWithGraph();
+
+  const status = await world.run(["sync", "status"]);
+  expect(status.stdout).toContain("hello: removed upstream");
+  expect((await world.run(["sync", "show", "hello"])).stdout).toContain("Removed upstream");
 
   const result = await world.run(["sync", "accept", "hello"]);
 
-  expect(result.code).toBe(1);
-  expect(result.stderr).toContain("conflict");
-  expect(readFileSync(file, "utf8")).toContain("My wording.");
-  expect(readManifest(clone).skills.hello.pin).toBe(pin);
+  expect(result.code, result.stderr).toBe(0);
+  const manifest = readManifest(clone);
+  expect(manifest.skills.hello).toBeUndefined();
+  expect(manifest.recommended).toEqual(["skills/misc/other"]);
+  expect(manifest.required).toEqual([]);
+  expect(manifest.dependsOn).toEqual({ other: [] });
+  expect(existsSync(join(clone, "skills/misc/hello"))).toBe(false);
+  expect(logOf(world, clone)[0]).toBe(`${SET_IDENTITY}|sync: accept hello`);
   expect(world.git(["status", "--porcelain"], clone)).toBe("");
+});
+
+test("skipping a removal deletes only the manifest entry, so the skill stays as an own skill", async () => {
+  const { world, clone } = await setWithGraph();
+
+  const result = await world.run(["sync", "skip", "hello"]);
+
+  expect(result.code, result.stderr).toBe(0);
+  const manifest = readManifest(clone);
+  expect(manifest.skills.hello).toBeUndefined();
+  expect(manifest.recommended).toContain("skills/misc/hello");
+  expect(existsSync(join(clone, "skills/misc/hello/SKILL.md"))).toBe(true);
+  expect(logOf(world, clone)[0]).toBe(`${SET_IDENTITY}|sync: skip hello`);
+  expect((await world.run(["sync", "status"])).stdout).toContain("Up to date.");
 });
 
 test("skip keeps the copy, moves the pin, records the commits as skipped and doesn't offer the change again", async () => {
@@ -133,6 +238,87 @@ test("a skill left undecided records nothing and shows up again", async () => {
   await world.run(["sync", "show", "hello"]);
   expect(world.git(["rev-list", "--count", "HEAD"], clone)).toBe(commits);
   expect((await world.run(["sync", "status"])).stdout).toContain("hello: 1 commit");
+});
+
+test("skills new in a source are listed as an FYI and never added", async () => {
+  const { world, source, clone } = await setWithTools();
+  source.commit({ "skills/fresh/SKILL.md": skillMd("fresh") }, "Add fresh");
+
+  const result = await world.run(["sync", "status"]);
+
+  expect(result.code, result.stderr).toBe(0);
+  expect(result.stdout).toContain("Up to date.");
+  expect(result.stdout).toMatch(/New upstream skills[^\n]*\n\s+tools: fresh/);
+  expect(Object.keys(readManifest(clone).skills)).toEqual(["hello", "other"]);
+  expect(world.git(["status", "--porcelain"], clone)).toBe("");
+});
+
+test("new lines naming Matt that no rule covers are a warning only", async () => {
+  const { world, source } = await setWithTools();
+  source.commit({ "skills/hello/SKILL.md": `${skillMd("hello")}Thanks to Matt for this.\n` }, "Credit");
+
+  const status = await world.run(["sync", "status"]);
+  expect(status.code, status.stderr).toBe(0);
+  expect(status.stdout).toContain("hello: 1 commit, new lines naming Matt");
+
+  const shown = await world.run(["sync", "show", "hello"]);
+  expect(shown.code, shown.stderr).toBe(0);
+  expect(shown.stdout).toContain("Warning");
+  expect(shown.stdout).toContain("SKILL.md: Thanks to Matt for this.");
+
+  expect((await world.run(["sync", "accept", "hello"])).code).toBe(0);
+});
+
+test("an unreachable source is reported and left undecided while other sources still sync", async () => {
+  const { world, source, clone } = await setWithTools();
+  const other = world.source("acme/more", { "skills/extra/SKILL.md": skillMd("extra") });
+  expect((await world.run(["add", other.url, "extra", "--yes"], { cwd: clone })).code).toBe(0);
+  source.commit({ "skills/hello/a.md": "a\n" });
+  other.commit({ "skills/extra/b.md": "b\n" });
+  rmSync(source.bare, { recursive: true, force: true });
+
+  const status = await world.run(["sync", "status"]);
+
+  expect(status.code).toBe(1);
+  expect(status.stderr).toContain("Can't reach tools");
+  expect(status.stderr).toContain("left undecided");
+  expect(status.stdout).toContain("extra: 1 commit");
+  expect(status.stdout).not.toContain("hello:");
+  expect((await world.run(["sync", "accept", "extra"])).code).toBe(0);
+  expect((await world.run(["sync", "accept", "hello"])).code).toBe(1);
+});
+
+test("changing a source's rename rules re-renders its skills at the same pin without making hand edits", async () => {
+  const world = createWorld();
+  const source = world.source("acme/tools", { "skills/hello/SKILL.md": `${skillMd("hello")}Ask Acme.\nAcme again.\n` });
+  const clone = world.cloneSet();
+  world.recordClone(clone);
+  expect((await world.run(["add", source.url, "hello", "--yes"], { cwd: clone })).code).toBe(0);
+  const file = join(clone, "skills/misc/hello/SKILL.md");
+  writeFileSync(file, `Mine.\n${readFileSync(file, "utf8")}`);
+  world.git(["commit", "-qam", "my edit"], clone);
+  const pin = readManifest(clone).skills.hello.pin;
+  const manifest = readManifest(clone);
+  manifest.sources.tools.rename = [["Acme", "Moro"]];
+  writeFileSync(join(clone, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+  world.git(["commit", "-qam", "new rule"], clone);
+
+  const result = await world.run(["sync", "status"]);
+
+  expect(result.code, result.stderr).toBe(0);
+  expect(result.stdout).toContain("Up to date.");
+  expect(readFileSync(file, "utf8")).toBe(`Mine.\n${skillMd("hello")}Ask Moro.\nMoro again.\n`);
+  expect(readManifest(clone).skills.hello.pin).toBe(pin);
+  expect(logOf(world, clone)[0]).toBe(`${SET_IDENTITY}|sync: re-render tools`);
+  expect(world.git(["status", "--porcelain"], clone)).toBe("");
+
+  source.commit({ "skills/hello/SKILL.md": `${skillMd("hello")}Ask Acme.\nAcme again.\nAcme more.\n` });
+  const shown = await world.run(["sync", "show", "hello"]);
+  expect(shown.stdout).toContain("Hand edits: SKILL.md");
+  expect(shown.stdout).toContain("+Moro more.");
+  const commits = world.git(["rev-list", "--count", "HEAD"], clone);
+  await world.run(["sync", "status"]);
+  expect(world.git(["rev-list", "--count", "HEAD"], clone)).toBe(commits);
 });
 
 test("sync works from any folder and names skills it doesn't know", async () => {

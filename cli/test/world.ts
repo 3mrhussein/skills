@@ -40,8 +40,10 @@ export interface RunResult {
 export interface Repo {
   /** The URL `moro` and the `skills` CLI use for this repo. */
   url: string;
-  /** Commits `files` on the default branch and pushes; returns the full SHA. */
-  commit(files: Files, message?: string): string;
+  /** Commits `files` on the default branch and pushes (removing the `remove` paths first); returns the full SHA. */
+  commit(files: Files, message?: string, remove?: string[]): string;
+  /** The bare repo's folder. */
+  bare: string;
   /** The full SHA of the default branch's latest commit. */
   head(): string;
   /** Tags the latest commit and pushes the tag. */
@@ -136,7 +138,9 @@ export function createWorld(options: { set?: Files } = {}): World {
     git(["remote", "add", "origin", bare], work);
     const repo: Repo = {
       url: `${HOST}${name}.git`,
-      commit(files, message = "change") {
+      bare,
+      commit(files, message = "change", remove = []) {
+        for (const path of remove) rmSync(join(work, path), { recursive: true, force: true });
         writeFiles(work, files);
         git(["add", "-A"], work);
         git([...IDENTITY, "commit", "-q", "--allow-empty", "-m", message], work);
