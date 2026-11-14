@@ -5,7 +5,7 @@ import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join, relative } from "node:path";
 import { promisify } from "node:util";
-import { DEFAULT_AGENTS } from "./agents.js";
+import { DEFAULT_AGENTS, missingFrom } from "./agents.js";
 import { readDevice, writeDevice } from "./device.js";
 import { gitRunner } from "./git.js";
 import { requireNewEnoughMoro } from "./hints.js";
@@ -19,13 +19,10 @@ import { runSkills } from "./skills-cli.js";
 import { UserError } from "./user-error.js";
 
 const USAGE = "moro bootstrap";
+const WITH_FLAGS = "moro bootstrap [--yes] [--agents <agent…>]";
 
 export async function bootstrap(io: MoroIo, argv: string[]): Promise<number> {
-  const yes = argv.includes("--yes") || argv.includes("-y");
-  const [arg] = argv.filter((a) => a !== "--yes" && a !== "-y");
-  if (arg !== undefined) {
-    throw new UserError(`${arg.startsWith("-") ? `Unknown option: ${arg}` : `moro bootstrap takes no ${arg}.`}\n\nNext: run \`${USAGE}\` in the set's clone`);
-  }
+  const { yes, agents } = parseArgs(argv);
   const locations = readLocations(io.env);
   const say = (text: string) => io.stdout.write(`${text}\n`);
   const { clone, group } = await cloneHere(io);
@@ -38,7 +35,8 @@ export async function bootstrap(io: MoroIo, argv: string[]): Promise<number> {
   const current =
     installed !== undefined &&
     isFrom(installed, clone) &&
-    sameFiles(join(clone, skillFolder(ENTRY_SKILL, group)), join(locations.home, ".agents", "skills", ENTRY_SKILL));
+    sameFiles(join(clone, skillFolder(ENTRY_SKILL, group)), join(locations.home, ".agents", "skills", ENTRY_SKILL)) &&
+    missingFrom(locations.home, agents, [ENTRY_SKILL], "user").size === 0;
   say(stateParagraph(lock, clone));
 
   const retired = await retireShadowing(io, locations, clone, lock, yes, say);
@@ -46,7 +44,7 @@ export async function bootstrap(io: MoroIo, argv: string[]): Promise<number> {
   // The device file is written first, so a failed install leaves it for the rerun.
   if (!recorded) writeDevice(locations.deviceFile, { clone });
   if (!current) {
-    const result = await runSkills(["add", clone, "-g", "-y", "-a", ...DEFAULT_AGENTS, "--skill", ENTRY_SKILL], { env: io.env, cwd: locations.home });
+    const result = await runSkills(["add", clone, "-g", "-y", "-a", ...agents, "--skill", ENTRY_SKILL], { env: io.env, cwd: locations.home });
     if (result.code !== 0) {
       throw new UserError(`Installing ${ENTRY_SKILL} failed:\n${result.output.trim()}\n\nNext: rerun \`${USAGE}\` in the set's clone.`);
     }
@@ -229,4 +227,22 @@ function stateParagraph(lock: Record<string, LockEntry>, clone: string): string 
 /** `a`, `a and b`, `a, b and c`. */
 function listed(items: string[]): string {
   return items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
+}
+
+function parseArgs(argv: string[]): { yes: boolean; agents: string[] } {
+  let yes = false;
+  let agents = DEFAULT_AGENTS;
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]!;
+    if (arg === "--yes" || arg === "-y") yes = true;
+    else if (arg === "--agents") {
+      const named: string[] = [];
+      while (i + 1 < argv.length && !argv[i + 1]!.startsWith("-")) named.push(argv[++i]!);
+      if (named.length === 0) throw new UserError(`--agents takes agent names.\n\nNext: run \`${WITH_FLAGS}\` in the set's clone`);
+      agents = named;
+    } else {
+      throw new UserError(`${arg.startsWith("-") ? `Unknown option: ${arg}` : `moro bootstrap takes no ${arg}.`}\n\nNext: run \`${USAGE}\` in the set's clone`);
+    }
+  }
+  return { yes, agents };
 }

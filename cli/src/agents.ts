@@ -1,6 +1,6 @@
 // The agents an install names to the `skills` CLI with `-a`, so what lands never
 // depends on how that CLI detects its caller (ADR 0008).
-import { existsSync } from "node:fs";
+import { existsSync, lstatSync } from "node:fs";
 import { join } from "node:path";
 
 /** Ticked by default: Claude Code, and three agents that read the shared `.agents/skills`. */
@@ -44,4 +44,22 @@ export function missingFrom(root: string, agents: string[], names: string[], sco
     if (without.length > 0) missing.set(name, without);
   }
   return missing;
+}
+
+/** How the skills sit in each agent's own folder: links to the shared copy, or full copies. */
+export type Method = "symlink" | "copy";
+
+/** The method on disk: copy when an agent's own folder holds a real folder for an installed skill; undefined when no such folder holds one. */
+export function methodOnDisk(root: string, installed: string[], scope: "project" | "user"): Method | undefined {
+  for (const agent of Object.keys(OWN_FOLDER)) {
+    for (const name of installed) {
+      const folder = agentFolder(root, agent, name, scope);
+      try {
+        return lstatSync(folder).isSymbolicLink() ? "symlink" : "copy";
+      } catch {
+        // Not in this agent's folder; look further.
+      }
+    }
+  }
+  return undefined;
 }

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { AGENTS, createWorld, skillMd, type World } from "./world.js";
@@ -102,7 +102,7 @@ test("moro install --user installs the picks at user level for the agents, from 
 test("moro install --user offers recommended skills ticked first, then installed ones on a rerun, and never the entry skill", async () => {
   const world = setup();
 
-  const first = await world.run(["install", "--user"], { cwd: world.root, answers: [["tdd", "grill"], AGENTS] });
+  const first = await world.run(["install", "--user"], { cwd: world.root, answers: [["tdd", "grill"], AGENTS, "symlink"] });
   const rerun = await world.run(["install", "--user"], { cwd: world.root, answers: [["tdd"]] });
 
   expect(first.code, first.stderr).toBe(0);
@@ -137,7 +137,7 @@ test("a project install marks skills already at user level and ticks only the re
   const world = setup();
   await world.run(["install", "--user", "--yes", "--pick", "tdd"], { cwd: world.root });
 
-  const result = await world.run(["install"], { answers: [["grill"], "exclude", AGENTS] });
+  const result = await world.run(["install"], { answers: [["grill"], "exclude", AGENTS, "symlink"] });
 
   expect(result.code, result.stderr).toBe(0);
   const picker = result.prompts[0] as any;
@@ -193,7 +193,7 @@ test("a project pick the set also put at user level is named once, with no rerun
 test("a first install without --agents asks which agents, the four ticked, after the git question", async () => {
   const world = setup();
 
-  const result = await world.run(["install"], { answers: [["tdd"], "exclude", ["codex", "github-copilot"]] });
+  const result = await world.run(["install"], { answers: [["tdd"], "exclude", ["codex", "github-copilot"], "symlink"] });
 
   expect(result.code, result.stderr).toBe(0);
   const question = result.prompts[2] as any;
@@ -220,4 +220,69 @@ test("a rerun whose --agents leaves out claude-code takes the skills out of .cla
   expect(existsSync(join(world.project, ".agents/skills/tdd/SKILL.md"))).toBe(true);
   expect(projectLock(world)).toEqual(["grill", "tdd"]);
   expect(result.stdout).toContain("Removed from claude-code: grill, tdd.");
+});
+
+test("a first install asks symlink or copy, symlink first; copy puts a real folder in .claude/skills", async () => {
+  const world = setup();
+
+  const result = await world.run(["install"], { answers: [["tdd"], "exclude", AGENTS, "copy"] });
+
+  expect(result.code, result.stderr).toBe(0);
+  const question = result.prompts[3] as any;
+  expect(question.message).toBe("Symlink the skills into each agent's folder, or copy them?");
+  expect(question.recommended).toBe("symlink");
+  expect(lstatSync(join(world.project, ".claude/skills/tdd")).isSymbolicLink()).toBe(false);
+  expect(existsSync(join(world.project, ".claude/skills/tdd/SKILL.md"))).toBe(true);
+});
+
+test("symlink links .claude/skills to the shared copy, and a rerun keeps the method on disk", async () => {
+  const world = setup();
+  await world.run(["install", "--yes", "--pick", "tdd"]);
+  expect(lstatSync(join(world.project, ".claude/skills/tdd")).isSymbolicLink()).toBe(true);
+
+  const rerun = await world.run(["install", "--pick", "tdd", "grill"]);
+
+  expect(rerun.code, rerun.stderr).toBe(0);
+  expect(rerun.prompts).toHaveLength(0);
+  expect(lstatSync(join(world.project, ".claude/skills/grill")).isSymbolicLink()).toBe(true);
+});
+
+test("switching method reinstalls every installed skill with the new one", async () => {
+  const world = setup();
+  await world.run(["install", "--yes", "--pick", "tdd", "grill"]);
+
+  const toCopy = await world.run(["install", "--yes", "--copy"]);
+
+  expect(toCopy.code, toCopy.stderr).toBe(0);
+  for (const name of ["tdd", "grill"]) expect(lstatSync(join(world.project, `.claude/skills/${name}`)).isSymbolicLink()).toBe(false);
+  expect(toCopy.stdout).toContain("Updated: grill, tdd.");
+
+  const back = await world.run(["install", "--yes", "--symlink"]);
+
+  expect(back.code, back.stderr).toBe(0);
+  for (const name of ["tdd", "grill"]) expect(lstatSync(join(world.project, `.claude/skills/${name}`)).isSymbolicLink()).toBe(true);
+});
+
+test("bootstrap installs the entry skill for the four agents, and --agents names others", async () => {
+  const world = setup();
+
+  const four = await world.run(["bootstrap", "--yes"], { cwd: world.clone });
+  expect(four.code, four.stderr).toBe(0);
+  expect(lstatSync(join(world.home, `.claude/skills/${ENTRY}`)).isSymbolicLink()).toBe(true);
+
+  const codex = createWorld({ set: SET });
+  const result = await codex.run(["bootstrap", "--yes", "--agents", "codex"], { cwd: codex.cloneSet() });
+  expect(result.code, result.stderr).toBe(0);
+  expect(existsSync(join(codex.home, `.agents/skills/${ENTRY}/SKILL.md`))).toBe(true);
+  expect(existsSync(join(codex.home, `.claude/skills/${ENTRY}`))).toBe(false);
+});
+
+test("a bootstrap rerun links the entry skill into .claude/skills when it's missing there", async () => {
+  const world = setup();
+  await world.run(["bootstrap", "--yes", "--agents", "codex"], { cwd: world.clone });
+
+  const result = await world.run(["bootstrap", "--yes"], { cwd: world.clone });
+
+  expect(result.code, result.stderr).toBe(0);
+  expect(existsSync(join(world.home, `.claude/skills/${ENTRY}/SKILL.md`))).toBe(true);
 });

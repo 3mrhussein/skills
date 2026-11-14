@@ -4,7 +4,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { findClone, worktreeOf } from "./device.js";
-import { agentFolder, agentsOnDisk, DEFAULT_AGENTS, hasOwnFolder, missingFrom, OFFERED_AGENTS, SHARED_FOLDER } from "./agents.js";
+import { agentFolder, agentsOnDisk, DEFAULT_AGENTS, hasOwnFolder, type Method, methodOnDisk, missingFrom, OFFERED_AGENTS, SHARED_FOLDER } from "./agents.js";
 import { cloneCopy, diffFolders, diverge, fromClone, projectCopy, needsRerun, reportLines, type Divergence, type Label, type Place, type SetSkill } from "./divergence.js";
 import { readLock } from "./lock.js";
 import { gitRunner } from "./git.js";
@@ -38,6 +38,8 @@ interface InstallArgs {
   pick?: string[];
   /** The agents to install for, passed to the `skills` CLI as `-a`. */
   agents?: string[];
+  /** Symlink each agent's folder to the shared copy, or put a full copy in each. */
+  method?: Method;
   /** Keep a first install's skills out of git (true) or commit them (false), instead of asking. */
   keepOut?: boolean;
   /** The edited here or loose skills that the set's copy replaces, instead of asking. */
@@ -124,6 +126,12 @@ export async function install(io: MoroIo, argv: string[]): Promise<number> {
   // A first install asks; a rerun keeps the agents already installed for, unless `--agents` names others.
   const onDisk = firstInstall ? [] : agentsOnDisk(top, current, scope);
   const agents = args.agents ?? (firstInstall ? (yes ? DEFAULT_AGENTS : await askAgents(io)) : onDisk);
+  // A first install asks; a rerun keeps the method on disk, and a new one reinstalls every installed skill.
+  const methodNow = firstInstall ? undefined : methodOnDisk(top, current, scope);
+  const method = args.method ?? methodNow ?? (yes ? "symlink" : await askMethod(io));
+  if (methodNow !== undefined && method !== methodNow) {
+    for (const name of picks.filter((pick) => current.includes(pick) && !keepMine.has(pick) && !update.includes(pick))) update.push(name);
+  }
   // An installed skill missing from a picked agent's folder is added again, so every agent sees it.
   for (const name of missingFrom(top, agents, picks.filter((pick) => current.includes(pick)), scope).keys()) {
     if (!update.includes(name) && !keepMine.has(name) && !remove.includes(name)) update.push(name);
@@ -136,7 +144,7 @@ export async function install(io: MoroIo, argv: string[]): Promise<number> {
     if (names.length > 0) unlinked.set(agent, names);
   }
 
-  const output = await apply(io, { setDir, clone, top, add: [...add, ...update], remove, offers, agents, user });
+  const output = await apply(io, { setDir, clone, top, add: [...add, ...update], remove, offers, agents, method, user });
   const missing = missingFrom(top, agents, [...add, ...update], scope);
   const landed = (name: string) => !missing.has(name);
   const added = add.filter(landed);
@@ -149,7 +157,7 @@ export async function install(io: MoroIo, argv: string[]): Promise<number> {
 
   return summary(io, {
     add: added,
-    update: update.filter((name) => landed(name) && !added.includes(name)),
+    update: update.filter((name) => landed(name) && !added.includes(name)).sort(),
     remove,
     keepOut,
     reasons,
@@ -160,6 +168,18 @@ export async function install(io: MoroIo, argv: string[]): Promise<number> {
     alsoAtUser: picks.filter((name) => atUser.has(name)),
     unlinked,
   });
+}
+
+async function askMethod(io: MoroIo): Promise<Method> {
+  const answer = await io.prompter.select({
+    message: "Symlink the skills into each agent's folder, or copy them?",
+    choices: [
+      { value: "symlink", label: "Symlink: one copy in .agents/skills, linked from each agent's folder" },
+      { value: "copy", label: "Copy: a full copy in each agent's folder" },
+    ],
+    recommended: "symlink",
+  });
+  return "value" in answer && answer.value === "copy" ? "copy" : "symlink";
 }
 
 async function askAgents(io: MoroIo): Promise<string[]> {
@@ -249,6 +269,11 @@ function parseArgs(argv: string[]): InstallArgs {
     const arg = argv[i]!;
     if (arg === "--yes" || arg === "-y") args.yes = true;
     else if (arg === "--user") args.user = true;
+    else if (arg === "--symlink" || arg === "--copy") {
+      const method = arg === "--copy" ? "copy" : "symlink";
+      if (args.method !== undefined && args.method !== method) throw new UserError(`Give --symlink or --copy, not both.\n\nNext: run \`${USAGE}\``);
+      args.method = method;
+    }
     else if (arg === "--keep-out" || arg === "--commit") {
       if (args.keepOut !== undefined && args.keepOut !== (arg === "--keep-out")) {
         throw new UserError(`Give --keep-out or --commit, not both.\n\nNext: run \`${USAGE}\``);
@@ -417,12 +442,22 @@ function plan(offers: Offer[], current: string[], picks: string[], gone: string[
 /** Runs the `skills` CLI's adds and removes, naming the agents; returns what it printed. */
 async function apply(
   io: MoroIo,
-  work: { setDir: string; clone: string; top: string; add: string[]; remove: string[]; offers: Offer[]; agents: string[]; user: boolean },
+  work: {
+    setDir: string;
+    clone: string;
+    top: string;
+    add: string[];
+    remove: string[];
+    offers: Offer[];
+    agents: string[];
+    method: Method;
+    user: boolean;
+  },
 ): Promise<string> {
   const local = work.offers.filter((offer) => offer.localOnly && work.add.includes(offer.name));
   const shared = work.add.filter((name) => !local.some((offer) => offer.name === name));
   const scope = work.user ? ["-g"] : [];
-  const flags = [...scope, "-y", "-a", ...work.agents];
+  const flags = [...scope, "-y", ...(work.method === "copy" ? ["--copy"] : []), "-a", ...work.agents];
   const installs = [
     ...(shared.length > 0 ? [["add", work.setDir, ...flags, "--skill", ...shared]] : []),
     ...local.map((offer) => ["add", join(work.clone, localOnlyFolder(offer.name)), ...flags]),

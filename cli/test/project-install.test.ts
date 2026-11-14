@@ -41,7 +41,7 @@ test("stops outside a git repo", async () => {
 test("first install offers recommended skills ticked, then experimental ones, under group headers", async () => {
   const world = setup();
 
-  const result = await world.run(["install"], { answers: [["tdd", "grill"], "exclude", AGENTS] });
+  const result = await world.run(["install"], { answers: [["tdd", "grill"], "exclude", AGENTS, "symlink"] });
 
   expect(result.code, result.stderr).toBe(0);
   const request = result.prompts[0] as any;
@@ -58,7 +58,7 @@ test("first install offers recommended skills ticked, then experimental ones, un
 test("first install asks to commit or keep out; keeping out excludes the skills and the lock", async () => {
   const world = setup();
 
-  const result = await world.run(["install"], { answers: [["tdd"], "exclude", AGENTS] });
+  const result = await world.run(["install"], { answers: [["tdd"], "exclude", AGENTS, "symlink"] });
 
   const question = result.prompts[1] as any;
   expect(question.message).toBe("Commit these skills to this project, or keep them out of git?");
@@ -71,14 +71,14 @@ test("first install asks to commit or keep out; keeping out excludes the skills 
 test("choosing to commit leaves the skills visible to git", async () => {
   const world = setup();
 
-  await world.run(["install"], { answers: [["tdd"], "commit", AGENTS] });
+  await world.run(["install"], { answers: [["tdd"], "commit", AGENTS, "symlink"] });
 
   expect(world.git(["status", "--porcelain"], world.project)).toContain("skills-lock.json");
 });
 
 test("a rerun ticks the installed skills, adds new picks, removes unticked ones and doesn't ask again", async () => {
   const world = setup();
-  await world.run(["install"], { answers: [["tdd", "grill"], "exclude", AGENTS] });
+  await world.run(["install"], { answers: [["tdd", "grill"], "exclude", AGENTS, "symlink"] });
 
   const result = await world.run(["install"], { answers: [["tdd", "zoom"]] });
 
@@ -94,7 +94,7 @@ test("a rerun ticks the installed skills, adds new picks, removes unticked ones 
 
 test("a current project ends Up to date.", async () => {
   const world = setup();
-  await world.run(["install"], { answers: [["tdd"], "exclude", AGENTS] });
+  await world.run(["install"], { answers: [["tdd"], "exclude", AGENTS, "symlink"] });
 
   const result = await world.run(["install"], { answers: [["tdd"]] });
 
@@ -135,7 +135,7 @@ function withLocalOnly(files: Record<string, string>): World {
 test("local-only skills are offered under Recommended in the skills.local group, ticked on a first install", async () => {
   const world = withLocalOnly({ "skills.local/deploy/SKILL.md": skillMd("deploy") });
 
-  const result = await world.run(["install"], { answers: [["tdd", "grill", "deploy"], "exclude", AGENTS] });
+  const result = await world.run(["install"], { answers: [["tdd", "grill", "deploy"], "exclude", AGENTS, "symlink"] });
 
   expect(result.code, result.stderr).toBe(0);
   const request = result.prompts[0] as any;
@@ -152,7 +152,7 @@ test("local-only skills are offered under Recommended in the skills.local group,
 test("local-only skills stay out of git even when the project commits its other skills", async () => {
   const world = withLocalOnly({ "skills.local/deploy/SKILL.md": skillMd("deploy") });
 
-  const result = await world.run(["install"], { answers: [["tdd", "deploy"], "commit", AGENTS] });
+  const result = await world.run(["install"], { answers: [["tdd", "deploy"], "commit", AGENTS, "symlink"] });
 
   expect(result.code, result.stderr).toBe(0);
   const status = world.git(["status", "--porcelain", "-uall"], world.project);
@@ -180,7 +180,7 @@ test("the set ignores skills.local/ in git", () => {
 test("--pick answers the picker and --commit answers the question, so a skill can relay both without prompts", async () => {
   const world = setup();
 
-  const result = await world.run(["install", "--pick", "diagnose", "tdd", "--commit", "--agents", ...AGENTS]);
+  const result = await world.run(["install", "--pick", "diagnose", "tdd", "--commit", "--agents", ...AGENTS, "--symlink"]);
 
   expect(result.code, result.stderr).toBe(0);
   expect(result.prompts).toEqual([]);
@@ -191,7 +191,7 @@ test("--pick answers the picker and --commit answers the question, so a skill ca
 test("--keep-out answers the question the other way, and a rerun with --pick removes what isn't named", async () => {
   const world = setup();
 
-  const first = await world.run(["install", "--pick", "tdd", "grill", "--keep-out", "--agents", ...AGENTS]);
+  const first = await world.run(["install", "--pick", "tdd", "grill", "--keep-out", "--agents", ...AGENTS, "--symlink"]);
   expect(first.code, first.stderr).toBe(0);
   expect(first.prompts).toEqual([]);
   expect(world.git(["status", "--porcelain"], world.project)).toBe("");
@@ -216,7 +216,7 @@ test("--pick names only skills the set holds, and --keep-out with --commit is re
 });
 
 test("the terminal picker shows sections and groups as headers, and typing a group's name drops or picks the whole group", async () => {
-  const dropped = await setup().run(["install", "--keep-out"], { typed: "productivity\n\n" });
+  const dropped = await setup().run(["install", "--keep-out"], { typed: "productivity\n\n\n" });
   expect(dropped.code, dropped.stderr).toBe(0);
   expect(dropped.stdout).toContain(
     ["Recommended", "  engineering", "  1. [x] tdd", "  productivity", "  2. [x] grill", "Experimental", "  engineering", "  3. [ ] diagnose"].join("\n"),
@@ -224,7 +224,7 @@ test("the terminal picker shows sections and groups as headers, and typing a gro
   expect(dropped.stdout).toContain("Type a group's name to pick or drop the whole group.");
   expect(dropped.stdout).toContain("Installed: tdd.");
 
-  const picked = await setup().run(["install", "--keep-out"], { typed: "engineering\n\n" });
+  const picked = await setup().run(["install", "--keep-out"], { typed: "engineering\n\n\n" });
   expect(picked.code, picked.stderr).toBe(0);
   expect(picked.stdout).toContain("Installed: diagnose, grill, tdd.");
 });

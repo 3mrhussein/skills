@@ -1,6 +1,6 @@
 #!/bin/bash
 # Builds the moro CLI from this clone, puts `moro` on the PATH and hands over to
-# `moro bootstrap`. Rerun it after a pull to rebuild and relink. Flags (--yes) go to bootstrap.
+# `moro bootstrap`. Rerun it after a pull to rebuild and relink. Flags (--yes, --agents <agent…>) go to bootstrap.
 set -eu
 
 fail() {

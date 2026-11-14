@@ -241,7 +241,7 @@ stateDiagram-v2
     Loose --> Loose: keep yours
 ```
 
-Every install names its **agents** to the `skills` CLI: Claude Code, Codex, GitHub Copilot and Antigravity unless `--agents` says otherwise ([ADR 0008](docs/adr/0008-moro-names-the-agents-it-installs-for.md)). A rerun keeps the agents already installed for. Choosing the **install method**, symlink or copy, is still to come.
+Every install names its **agents** to the `skills` CLI: Claude Code, Codex, GitHub Copilot and Antigravity unless `--agents` says otherwise ([ADR 0008](docs/adr/0008-moro-names-the-agents-it-installs-for.md)). A first install asks the agents and the **install method**, symlink (recommended) or copy; a rerun keeps both as they are on disk, and `--symlink` or `--copy` switches every skill over.
 
 ## Set up a device
 
@@ -267,7 +267,7 @@ Installed: setup-moro-skills.
 Next: open a project and run `/setup-moro-skills`
 ```
 
-`./install.sh --yes` takes every default without asking: it removes the ticked shadowing skills and keeps the rest.
+`./install.sh --yes` takes every default without asking: it removes the ticked shadowing skills and keeps the rest. The entry skill goes to Claude Code, Codex, GitHub Copilot and Antigravity; `--agents <agent…>` names others.
 
 Nothing remembers a skill you kept, so every rerun asks about each shadowing skill still there, including one a pull brought into the set.
 
@@ -324,13 +324,13 @@ Every command ends with a `Next:` line or `Up to date.` Each prompt is a selecti
 
 | Command | Where | What it does | Flags |
 | --- | --- | --- | --- |
-| `moro install` | a project, or anywhere with `--user` | Picks skills from the clone and installs them | `--user` installs at user level instead. `--agents <agent…>` names the agents (default: claude-code, codex, github-copilot, antigravity). `--yes` takes every recommended answer. `--pick <skill…>` replaces the picker. `--keep-out` or `--commit` answers the first install's git question. `--use-set-copy <skill…>` replaces edited or loose copies with the set's. `--from <worktree>` installs from a trial's worktree; a later run without it brings the project back to `main`. |
+| `moro install` | a project, or anywhere with `--user` | Picks skills from the clone and installs them | `--user` installs at user level instead. `--agents <agent…>` names the agents (default: claude-code, codex, github-copilot, antigravity); leaving out claude-code takes the skills out of `.claude/skills`. `--symlink` or `--copy` sets the method. `--yes` takes every recommended answer. `--pick <skill…>` replaces the picker. `--keep-out` or `--commit` answers the first install's git question. `--use-set-copy <skill…>` replaces edited or loose copies with the set's. `--from <worktree>` installs from a trial's worktree; a later run without it brings the project back to `main`. |
 | `moro add <ref> [skill…]` | the clone or a trial's worktree | Brings skills from another repo into the set | `--all`, `--group <name>`, `--recommended`, `--depends-on <key…>`, `--on-clash keep\|replace`, `--yes` |
 | `moro sync` | the clone or a trial's worktree | Walks upstream changes and accepts, skips or falls back on each skill | `--yes` accepts the changes that merge cleanly without touching a hand edit, and leaves the rest for later. Fallback drops a skill's hand edits and takes the upstream text as it is; it's offered only for a skill with hand edits. `moro sync status` only reads. `show <skill>`, `accept <skill>`, `skip <skill>` and `fallback <skill>` handle one skill. `show` names the skills that call it, and an accept or fallback warns with the workflow check's findings. |
 | `moro try <skill>` | anywhere | A trial of an upstream change: the fallback and the adapted copy of a skill with hand edits (one candidate without), each on a `try/` branch in a worktree beside the clone (`<clone>-try/`). Prints each candidate's diff against `main`, workflow check, impact and `moro install --from` line; `main` stays as it is. Rerun to see an open trial. | `--json` for `manage-moro-skills`. `--keep fallback\|adapted` merges that candidate into `main`, removes the trial and offers to push (`--yes` pushes). `--drop` removes the trial. |
 | `moro check [folder]` | anywhere | The workflow check: every skill another skill calls is in the folder (the clone by default), can be called, and is listed in the caller's `dependsOn`. A call is a Skill-tool sentence, a sentence telling the agent to run a `/skill`, or a `../<skill>/SKILL.md` read | `--impact <skill>` lists the skills that call it, directly or through another. `--json` for `manage-moro-skills`. Exits 1 on any finding. |
 | `moro audit` | anywhere | Where each skill stands at three layers: its source (`up to date`, `upstream +N commits`, `removed upstream`, `unreachable` or `own skill`), the set (`source's text` or `hand edits`) and, inside a project, the project (its labels or `same as set`). Below the table: the skills to try, then the sources' skills the set doesn't hold. Changes nothing. Inside a trial's worktree it reads that worktree. | `--json` for `manage-moro-skills`. Exits 1 when a source can't be reached. |
-| `moro bootstrap` | the clone | The last step of `./install.sh` | `--yes` |
+| `moro bootstrap` | the clone | The last step of `./install.sh` | `--yes`, `--agents <agent…>` |
 | `moro --version` | anywhere | Prints the CLI's version | |
 
 ## Help
