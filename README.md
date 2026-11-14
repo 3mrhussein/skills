@@ -50,7 +50,7 @@ Rerun `/setup-moro-skills` (or `moro install`) to catch the project up with the 
 
 ## Local-only skills
 
-A skill that must stay on one device goes in `local-only/<group>/<name>`. Git ignores that folder. Every project install offers these skills ticked and keeps them out of the project's git.
+A skill that must stay on one device goes in `skills.local/<name>`, with no group. Git ignores that folder. Every project install offers these skills ticked and keeps them out of the project's git.
 
 A project that commits its skills also commits `skills-lock.json`, which names its local-only skills and the path to the clone. Keep such a project's skills out of git when those names must stay private ([ADR 0006](docs/adr/0006-local-only-skills-live-in-a-gitignored-folder.md)).
 

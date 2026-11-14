@@ -251,7 +251,7 @@ export function impactSummary(setDir: string, key: string): string {
 const SKIPPED = new Set([".git", "node_modules"]);
 
 /**
- * The skills under `folder`: in a set, those in `skills/` and `local-only/`; elsewhere, every
+ * The skills under `folder`: in a set, those in `skills/` and `skills.local/`; elsewhere, every
  * `SKILL.md` outside `.git` and `node_modules`. Symlinked folders aren't followed, and the first
  * skill of a name wins.
  */

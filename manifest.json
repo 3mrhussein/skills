@@ -300,7 +300,7 @@
     "skills/productivity/to-questionnaire",
     "skills/productivity/wait-what",
     "skills/productivity/writing-for-agents",
-    "local-only/*"
+    "skills.local/*"
   ],
   "required": [
     "skills/engineering/ask-moro"

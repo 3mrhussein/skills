@@ -101,7 +101,7 @@ test("an edited copy, or one that only shares a name, differs: unticked, its fil
 
 test("a local-only skill's name shadows too", async () => {
   const world = worldWith();
-  writeFiles(world.clone, { "local-only/work/device-notes/SKILL.md": skillMd("device-notes") });
+  writeFiles(world.clone, { "skills.local/device-notes/SKILL.md": skillMd("device-notes") });
   writeFiles(world.home, { ".agents/skills/device-notes/SKILL.md": skillMd("device-notes") });
 
   const result = await world.run(["bootstrap"], { cwd: world.clone, answers: [["device-notes"]] });

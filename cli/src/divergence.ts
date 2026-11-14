@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { agentFolders, readProjectLock } from "./project.js";
-import { ENTRY_SKILL, LOCAL_ONLY_DIR, skillFolder } from "./set-layout.js";
+import { ENTRY_SKILL, localOnlyFolder, skillFolder } from "./set-layout.js";
 
 export const LABELS = ["set changed", "edited here", "gone from the set", "not installed", "loose"] as const;
 export type Label = (typeof LABELS)[number];
@@ -26,10 +26,10 @@ export interface Divergence {
 
 /**
  * The set's folder for a skill: in `setDir` (the clone, or a trial's worktree of it), or for a
- * local-only skill in the clone, whose gitignored `local-only/` no worktree has.
+ * local-only skill in the clone, whose gitignored `skills.local/` no worktree has.
  */
 export function cloneCopy(setDir: string, skill: SetSkill, clone = setDir): string {
-  return skill.localOnly ? join(clone, LOCAL_ONLY_DIR, skill.group, skill.name) : join(setDir, skillFolder(skill.name, skill.group));
+  return skill.localOnly ? join(clone, localOnlyFolder(skill.name)) : join(setDir, skillFolder(skill.name, skill.group));
 }
 
 /** Compares each skill with the project lock. `current` are the names the lock records. */

@@ -166,15 +166,15 @@ test("--work is gone", async () => {
   expect(result.stderr).toContain("Unknown option: --work");
 });
 
-test("a name already in local-only/ clashes, and the newcomer never lands there", async () => {
-  const world = createWorld({ set: { "local-only/work/hello/SKILL.md": skillMd("hello") } });
+test("a name already in skills.local/ clashes, and the newcomer never lands there", async () => {
+  const world = createWorld({ set: { "skills.local/hello/SKILL.md": skillMd("hello") } });
   world.source("acme/tools", { "skills/eng/hello/SKILL.md": skillMd("hello") });
   const clone = world.cloneSet();
   world.recordClone(clone);
 
   const yes = await world.run(["add", "acme/tools", "hello", "--yes"], { cwd: world.project });
   expect(yes.code).toBe(1);
-  expect(yes.stderr).toContain("hello is already in the set (local-only/work/hello).");
+  expect(yes.stderr).toContain("hello is already in the set (skills.local/hello).");
 
   const prompted = await world.run(["add", "acme/tools", "hello"], {
     cwd: world.project,
@@ -183,7 +183,7 @@ test("a name already in local-only/ clashes, and the newcomer never lands there"
   expect(prompted.code, prompted.stderr).toBe(0);
   expect(prompted.prompts[1]).toMatchObject({ choices: [{ value: "keep" }, { value: "rename" }] });
   expect(existsSync(join(clone, "skills/eng/tools-hello/SKILL.md"))).toBe(true);
-  expect(readFileSync(join(clone, "local-only/work/hello/SKILL.md"), "utf8")).toBe(skillMd("hello"));
+  expect(readFileSync(join(clone, "skills.local/hello/SKILL.md"), "utf8")).toBe(skillMd("hello"));
 });
 
 test("a name in another group of skills/ clashes", async () => {

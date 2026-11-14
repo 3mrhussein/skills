@@ -149,9 +149,9 @@ test("--yes updates set changed skills and removes gone ones, never touching edi
 });
 
 test("a local-only skill whose project copy came from an older clone copy is set changed", async () => {
-  const { world, clone } = await installed({ "local-only/work/deploy/SKILL.md": skillMd("deploy") });
+  const { world, clone } = await installed({ "skills.local/deploy/SKILL.md": skillMd("deploy") });
   expect(has(world, "deploy")).toBe(true);
-  writeFiles(clone, { "local-only/work/deploy/SKILL.md": `${skillMd("deploy")}\nnewer\n` });
+  writeFiles(clone, { "skills.local/deploy/SKILL.md": `${skillMd("deploy")}\nnewer\n` });
 
   const result = await world.run(["install"], { answers: [["tdd", "diagnose", "grill", "deploy"]] });
 

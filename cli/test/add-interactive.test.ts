@@ -469,14 +469,14 @@ test("--on-clash replace takes the newcomer in place of the set's skill, under -
 });
 
 test("--on-clash replace never replaces a local-only skill, and only keep or replace are taken", async () => {
-  const world = createWorld({ set: { "local-only/work/hello/SKILL.md": skillMd("hello") } });
+  const world = createWorld({ set: { "skills.local/hello/SKILL.md": skillMd("hello") } });
   world.source("acme/tools", { "skills/eng/hello/SKILL.md": skillMd("hello") });
   const clone = world.cloneSet();
   world.recordClone(clone);
 
   const replace = await world.run(["add", "acme/tools", "hello", "--yes", "--on-clash", "replace"], { cwd: clone });
   expect(replace.code).toBe(1);
-  expect(replace.stderr).toContain("hello is in local-only/work/hello, which is never replaced.");
+  expect(replace.stderr).toContain("hello is in skills.local/hello, which is never replaced.");
 
   const bogus = await world.run(["add", "acme/tools", "hello", "--on-clash", "rename"], { cwd: clone });
   expect(bogus.code).toBe(1);

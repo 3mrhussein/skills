@@ -455,7 +455,7 @@ function takenInRun(keyed: Keyed[], name: string): Keyed | undefined {
   return keyed.find((other) => other.name === name);
 }
 
-/** Names are unique across `skills/`, `local-only/` and the manifest, except for a skill this run replaces. */
+/** Names are unique across `skills/`, `skills.local/` and the manifest, except for a skill this run replaces. */
 function takenInSet(setDir: string, manifest: Manifest, plan: Plan, name: string): Taken | undefined {
   if (plan.replaced.some((replaced) => replaced.name === name)) return undefined;
   const folder = existingSkillFolder(setDir, name);

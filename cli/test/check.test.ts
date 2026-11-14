@@ -24,7 +24,7 @@ function setWith(files: Files) {
 /** One set with one of each finding, and calls that are fine. */
 const brokenSet: Files = {
   "manifest.json": manifest({
-    recommended: ["skills/engineering/ask-moro", "skills/engineering/tdd", "skills/engineering/grilling", "local-only/*"],
+    recommended: ["skills/engineering/ask-moro", "skills/engineering/tdd", "skills/engineering/grilling", "skills.local/*"],
     required: ["skills/engineering/ask-moro", "skills/engineering/gone"],
     dependsOn: { tdd: ["codebase-design"], implement: ["tdd", "grilling"] },
   }),
@@ -187,8 +187,8 @@ test("check reads local-only skills too, and a trial worktree's own manifest", a
     "skills/engineering/tdd/SKILL.md": skill("tdd", 'Call the Skill tool with "codebase-design".'),
     "skills/engineering/codebase-design/SKILL.md": skill("codebase-design"),
   });
-  mkdirSync(join(clone, "local-only/work/notes"), { recursive: true });
-  writeFileSync(join(clone, "local-only/work/notes/SKILL.md"), skill("notes", 'Call the Skill tool with "tdd".'));
+  mkdirSync(join(clone, "skills.local/notes"), { recursive: true });
+  writeFileSync(join(clone, "skills.local/notes/SKILL.md"), skill("notes", 'Call the Skill tool with "tdd".'));
   const trial = join(world.root, "skills-try", "tdd-adapted");
   world.git(["worktree", "add", "-q", "-b", "try/tdd-adapted", trial], clone);
   writeFileSync(join(trial, "manifest.json"), manifest({ dependsOn: {} }));

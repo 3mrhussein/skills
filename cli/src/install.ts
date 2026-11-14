@@ -12,7 +12,7 @@ import type { MoroIo } from "./main.js";
 import { readManifest } from "./manifest.js";
 import { PROJECT_LOCK, readProjectLock, skillFolders } from "./project.js";
 import { askYesNo, type MultiSelectRequest } from "./prompter.js";
-import { ENTRY_SKILL, localOnlySkills, LOCAL_ONLY_DIR, skillFolder, skillsWithGroups } from "./set-layout.js";
+import { ENTRY_SKILL, localOnlyFolder, localOnlySkills, LOCAL_ONLY_DIR, skillFolder, skillsWithGroups } from "./set-layout.js";
 import { shadowedPicks } from "./shadowing.js";
 import { runSkills } from "./skills-cli.js";
 import { UserError } from "./user-error.js";
@@ -20,7 +20,7 @@ import { MORO_VERSION } from "./version.js";
 
 const USAGE = "moro install [--yes] [--pick <skill…>] [--keep-out | --commit] [--use-set-copy <skill…>] [--from <worktree>]";
 
-/** One skill the project can take; a local-only one is copied from the clone's gitignored `local-only/` and always kept out of the project's git. */
+/** One skill the project can take; a local-only one is copied from the clone's gitignored `skills.local/` and always kept out of the project's git. */
 interface Offer extends SetSkill {
   recommended: boolean;
 }
@@ -190,7 +190,7 @@ function readOffers(setDir: string, clone: string): Offer[] {
     const twin = shared.find((other) => other.name === offer.name);
     if (twin) {
       throw new UserError(
-        `${offer.name} is in both ${skillFolder(offer.name, twin.group)} and ${join(LOCAL_ONLY_DIR, offer.group, offer.name)}, and a project installs both into one folder.\n\nNext: rename or remove one of them in the clone, then run \`moro install\` again.`,
+        `${offer.name} is in both ${skillFolder(offer.name, twin.group)} and ${localOnlyFolder(offer.name)}, and a project installs both into one folder.\n\nNext: rename or remove one of them in the clone, then run \`moro install\` again.`,
       );
     }
   }
@@ -307,7 +307,7 @@ async function apply(io: MoroIo, work: { setDir: string; clone: string; top: str
   const shared = work.add.filter((name) => !local.some((offer) => offer.name === name));
   const installs = [
     ...(shared.length > 0 ? [["add", work.setDir, "-y", "--skill", ...shared]] : []),
-    ...local.map((offer) => ["add", join(work.clone, LOCAL_ONLY_DIR, offer.group, offer.name), "-y"]),
+    ...local.map((offer) => ["add", join(work.clone, localOnlyFolder(offer.name)), "-y"]),
   ];
   for (const args of installs) {
     const result = await runSkills(args, { env: io.env, cwd: work.top });

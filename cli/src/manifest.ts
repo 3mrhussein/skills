@@ -28,7 +28,7 @@ export interface Manifest {
   moro: string;
   sources: Record<string, Source>;
   skills: Record<string, UpstreamSkill>;
-  /** Paths in the set (`skills/<group>/<name>`, or `local-only/*`) a project install ticks first. */
+  /** Paths in the set (`skills/<group>/<name>`, or `skills.local/*`) a project install ticks first. */
   recommended: string[];
   /** Paths in the set a project install always includes. */
   required?: string[];

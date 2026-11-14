@@ -19,7 +19,7 @@ A folder of the set that skills sit in, such as `engineering`. Every skill belon
 _Avoid_: bucket, category
 
 **Local-only skill**:
-A skill kept in one clone's `local-only/` folder and never pushed, so it exists on that device alone.
+A skill kept in one clone's `skills.local/` folder and never pushed, so it exists on that device alone.
 _Avoid_: private skill, device skill, work skill
 
 **Recommended skill**:
