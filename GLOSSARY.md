@@ -87,7 +87,7 @@ _Avoid_: rejected change, ignored update
 ### Devices and projects
 
 **Bootstrap**:
-Making one device ready: building the CLI from the clone, recording where the clone is, putting `/setup-moro-skills` at user level, and retiring every other user-level skill.
+Making one device ready: building the CLI from the clone, recording where the clone is, putting `/setup-moro-skills` at user level, and retiring the shadowing skills the owner picks. Every other user-level skill stays.
 _Avoid_: machine setup, install, init
 
 **Project install**:
@@ -109,3 +109,7 @@ _Avoid_: manifest
 **Loose skill**:
 A skill folder in a project, or at user level, that the lock file there doesn't record, such as one the owner wrote straight into the skills folder.
 _Avoid_: local skill, unlocked folder, untracked skill, stray skill
+
+**Shadowing skill**:
+A user-level skill with the same name as a skill in the set, which hides a project's copy of that skill. One taken from the same upstream skill as a set skill counts too, whatever its name.
+_Avoid_: conflict, clash, duplicate
