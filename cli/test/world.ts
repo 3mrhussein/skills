@@ -17,6 +17,9 @@ import { runSkills, type SkillsResult } from "../src/skills-cli.js";
  */
 const HOST = "https://git.moro.test/";
 
+/** The default agents, as a scripted answer to the agents question or after `--agents`. */
+export const AGENTS = ["claude-code", "codex", "github-copilot", "antigravity"];
+
 /** The global git identity, standing in for the company one on the owner's machine. */
 export const GLOBAL_IDENTITY = "Company Name <someone@company.test>";
 /** The repo-level identity of the set's clone. */

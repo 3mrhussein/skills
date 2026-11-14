@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { createWorld, skillMd, type World, writeFiles } from "./world.js";
+import { AGENTS, createWorld, skillMd, type World, writeFiles } from "./world.js";
 
 const SKILL = "setup-moro-skills";
 const SET = {
@@ -18,7 +18,7 @@ async function bootstrapped(): Promise<World> {
 test("moro install never offers setup-moro-skills, and its closing line leads with the skill", async () => {
   const world = await bootstrapped();
 
-  const result = await world.run(["install"], { answers: [["tdd"], "exclude"] });
+  const result = await world.run(["install"], { answers: [["tdd"], "exclude", AGENTS] });
 
   expect(result.code, result.stderr).toBe(0);
   expect((result.prompts[0] as any).choices.map((choice: any) => choice.value)).toEqual(["diagnose", "tdd"]);
@@ -27,7 +27,7 @@ test("moro install never offers setup-moro-skills, and its closing line leads wi
 
 test("a project holding setup-moro-skills keeps it, and neither the report nor bare moro lists it", async () => {
   const world = await bootstrapped();
-  await world.run(["install", "--pick", "tdd", "diagnose", "--keep-out"]);
+  await world.run(["install", "--pick", "tdd", "diagnose", "--keep-out", "--agents", ...AGENTS]);
   expect((await world.skills(["add", world.clone, "-y", "--skill", SKILL])).code).toBe(0);
 
   const status = await world.run([]);
@@ -43,7 +43,7 @@ test("moro install warns when a picked skill is shadowed at user level, never na
   const world = await bootstrapped();
   writeFiles(world.home, { ".agents/skills/tdd/SKILL.md": skillMd("tdd"), ".agents/skills/zoom/SKILL.md": skillMd("zoom") });
 
-  const result = await world.run(["install", "--pick", "tdd", "diagnose", "--keep-out"]);
+  const result = await world.run(["install", "--pick", "tdd", "diagnose", "--keep-out", "--agents", ...AGENTS]);
 
   expect(result.code, result.stderr).toBe(0);
   expect(result.stdout).toMatch(/Shadowed at user level: tdd\. .*\nNext: rerun \.\/install\.sh in the set's clone\.\n$/);
@@ -55,7 +55,7 @@ test("moro install says nothing about shadowing when no picked skill is shadowed
   const world = await bootstrapped();
   writeFiles(world.home, { ".agents/skills/tdd/SKILL.md": skillMd("tdd") });
 
-  const result = await world.run(["install", "--pick", "diagnose", "--keep-out"]);
+  const result = await world.run(["install", "--pick", "diagnose", "--keep-out", "--agents", ...AGENTS]);
 
   expect(result.code, result.stderr).toBe(0);
   expect(result.stdout).not.toContain("Shadowed");
@@ -77,7 +77,7 @@ test("a manifest naming setup-moro-skills in required or dependsOn doesn't stop 
   });
   expect((await world.run(["bootstrap"], { cwd: world.clone })).code).toBe(0);
 
-  const result = await world.run(["install", "--pick", "tdd", "--keep-out"]);
+  const result = await world.run(["install", "--pick", "tdd", "--keep-out", "--agents", ...AGENTS]);
 
   expect(result.code, result.stderr).toBe(0);
   expect(result.stdout).toContain("Installed: tdd.");

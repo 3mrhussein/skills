@@ -23,7 +23,8 @@ Put every question to the owner as a selection, recommended option first, a type
 3. Ask which skills to install. List the skills in `<clone>/skills/<group>/` under their groups and those in `<clone>/skills.local/` under `skills.local`, all but `setup-moro-skills`, which bootstrap keeps at user level; the clone is the `clone` in `~/.config/moro/config.json`. On a first install tick the manifest's `recommended` ones, leaving out any the report labels `installed (user)`; on a rerun tick the installed ones. `moro` adds required skills and dependencies itself.
 4. For each pick the report labels `edited here` or `loose`, show `diff -ru <installed copy> <clone copy>` and ask whether the set's copy replaces it (no first).
 5. On a project's first install, ask whether to keep the skills out of git or commit them (keep out first).
-6. Run `moro install [--user] --pick <skills…> [--keep-out | --commit] [--use-set-copy <skills…>]` and relay its closing lines word for word, including any `Not installed:`, `Also at user level:` or `Shadowed at user level:` line and the `Next:` line.
+6. Ask which agents the skills go to: `claude-code`, `codex`, `github-copilot` and `antigravity` ticked, `gemini-cli` not. On a rerun, tick the agents the last install named (its `Agents:` line); `moro` keeps those when no agents are passed.
+7. Run `moro install [--user] --pick <skills…> --agents <agents…> [--keep-out | --commit] [--use-set-copy <skills…>]` and relay its closing lines word for word, including any `Removed from <agent>:`, `Not installed:`, `Also at user level:` or `Shadowed at user level:` line and the `Next:` line.
 
 Done when the summary printed `Up to date.` or its `Installed`, `Updated` and `Removed` lines.
 

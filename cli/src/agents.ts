@@ -6,10 +6,18 @@ import { join } from "node:path";
 /** Ticked by default: Claude Code, and three agents that read the shared `.agents/skills`. */
 export const DEFAULT_AGENTS = ["claude-code", "codex", "github-copilot", "antigravity"];
 
+/** Offered by the agents question: the defaults, then other agents that read the shared folder. */
+export const OFFERED_AGENTS = [...DEFAULT_AGENTS, "gemini-cli"];
+
 /** Where an agent other than the shared-folder ones keeps its skills, relative to a project or the home folder. */
 const OWN_FOLDER: Record<string, { project: string; user: string }> = {
   "claude-code": { project: ".claude/skills", user: ".claude/skills" },
 };
+
+/** Whether the agent keeps its skills in a folder of its own rather than the shared one. */
+export function hasOwnFolder(agent: string): boolean {
+  return agent in OWN_FOLDER;
+}
 
 /** The folder holding the canonical copy every agent's folder links to, in a project and at user level alike. */
 export const SHARED_FOLDER = ".agents/skills";

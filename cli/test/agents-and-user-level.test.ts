@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { createWorld, skillMd, type World } from "./world.js";
+import { AGENTS, createWorld, skillMd, type World } from "./world.js";
 
 const ENTRY = "setup-moro-skills";
 const SET = {
@@ -102,7 +102,7 @@ test("moro install --user installs the picks at user level for the agents, from 
 test("moro install --user offers recommended skills ticked first, then installed ones on a rerun, and never the entry skill", async () => {
   const world = setup();
 
-  const first = await world.run(["install", "--user"], { cwd: world.root, answers: [["tdd", "grill"]] });
+  const first = await world.run(["install", "--user"], { cwd: world.root, answers: [["tdd", "grill"], AGENTS] });
   const rerun = await world.run(["install", "--user"], { cwd: world.root, answers: [["tdd"]] });
 
   expect(first.code, first.stderr).toBe(0);
@@ -137,7 +137,7 @@ test("a project install marks skills already at user level and ticks only the re
   const world = setup();
   await world.run(["install", "--user", "--yes", "--pick", "tdd"], { cwd: world.root });
 
-  const result = await world.run(["install"], { answers: [["grill"], "exclude"] });
+  const result = await world.run(["install"], { answers: [["grill"], "exclude", AGENTS] });
 
   expect(result.code, result.stderr).toBe(0);
   const picker = result.prompts[0] as any;
@@ -188,4 +188,36 @@ test("a project pick the set also put at user level is named once, with no rerun
   expect(result.stdout).toContain("Also at user level: tdd.");
   expect(result.stdout).not.toContain("Shadowed at user level");
   expect(result.stdout).toContain("Next: restart your agent in this project");
+});
+
+test("a first install without --agents asks which agents, the four ticked, after the git question", async () => {
+  const world = setup();
+
+  const result = await world.run(["install"], { answers: [["tdd"], "exclude", ["codex", "github-copilot"]] });
+
+  expect(result.code, result.stderr).toBe(0);
+  const question = result.prompts[2] as any;
+  expect(question.message).toBe("Which agents should these skills install for?");
+  expect(question.choices.map((c: any) => [c.value, !!c.picked])).toEqual([
+    ["claude-code", true],
+    ["codex", true],
+    ["github-copilot", true],
+    ["antigravity", true],
+    ["gemini-cli", false],
+  ]);
+  expect(existsSync(join(world.project, ".agents/skills/tdd/SKILL.md"))).toBe(true);
+  expect(existsSync(join(world.project, ".claude/skills/tdd"))).toBe(false);
+});
+
+test("a rerun whose --agents leaves out claude-code takes the skills out of .claude/skills only", async () => {
+  const world = setup();
+  await world.run(["install", "--yes"]);
+
+  const result = await world.run(["install", "--yes", "--agents", "codex"]);
+
+  expect(result.code, result.stderr).toBe(0);
+  expect(existsSync(join(world.project, ".claude/skills/tdd"))).toBe(false);
+  expect(existsSync(join(world.project, ".agents/skills/tdd/SKILL.md"))).toBe(true);
+  expect(projectLock(world)).toEqual(["grill", "tdd"]);
+  expect(result.stdout).toContain("Removed from claude-code: grill, tdd.");
 });

@@ -1,10 +1,10 @@
 // `moro install`: the set's skills, offered in one multi-select and copied into
 // the project from the clone. Nothing is recorded in the project beyond what the
 // `skills` CLI writes (its `skills-lock.json` and the skill folders).
-import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { findClone, worktreeOf } from "./device.js";
-import { agentsOnDisk, DEFAULT_AGENTS, missingFrom, SHARED_FOLDER } from "./agents.js";
+import { agentFolder, agentsOnDisk, DEFAULT_AGENTS, hasOwnFolder, missingFrom, OFFERED_AGENTS, SHARED_FOLDER } from "./agents.js";
 import { cloneCopy, diffFolders, diverge, fromClone, projectCopy, needsRerun, reportLines, type Divergence, type Label, type Place, type SetSkill } from "./divergence.js";
 import { readLock } from "./lock.js";
 import { gitRunner } from "./git.js";
@@ -12,7 +12,7 @@ import { RERUN_INSTALL, RERUN_SETUP, UP_TO_DATE } from "./hints.js";
 import { readLocations } from "./locations.js";
 import type { MoroIo } from "./main.js";
 import { readManifest } from "./manifest.js";
-import { PROJECT_LOCK, readProjectLock, skillFolders } from "./project.js";
+import { isLink, PROJECT_LOCK, readProjectLock, skillFolders } from "./project.js";
 import { askYesNo, type MultiSelectRequest } from "./prompter.js";
 import { ENTRY_SKILL, localOnlyFolder, localOnlySkills, LOCAL_ONLY_DIR, skillFolder, skillsWithGroups } from "./set-layout.js";
 import { shadowedPicks } from "./shadowing.js";
@@ -91,8 +91,6 @@ export async function install(io: MoroIo, argv: string[]): Promise<number> {
           offerChoices(offers, new Set([...start, ...divergence.gone]), lockedSkills(rules, start, atUser), divergence, user),
         ));
   const { picks, reasons } = withLocked(rules, chosen, atUser);
-  const agents = args.agents ?? (firstInstall ? DEFAULT_AGENTS : agentsOnDisk(top, current, scope));
-
   const planned = plan(offers, current, picks, divergence.gone);
   const remove = planned.remove;
   const add = [...planned.add];
@@ -112,11 +110,6 @@ export async function install(io: MoroIo, argv: string[]): Promise<number> {
       if (hasLabel(name, "loose")) add.splice(add.indexOf(name), 1);
     }
   }
-  // An installed skill missing from a picked agent's folder is added again, so every agent sees it.
-  for (const name of missingFrom(top, agents, picks.filter((pick) => current.includes(pick)), scope).keys()) {
-    if (!update.includes(name) && !keepMine.has(name) && !remove.includes(name)) update.push(name);
-  }
-
   let keepOut = args.keepOut ?? false;
   let excludeFile = "";
   if (!user) {
@@ -126,6 +119,21 @@ export async function install(io: MoroIo, argv: string[]): Promise<number> {
     excludeFile = (await git(["rev-parse", "--path-format=absolute", "--git-path", "info/exclude"], top)).trim();
     // A project that kept its skills out of git keeps the new ones out too.
     keepOut ||= !firstInstall && existsSync(excludeFile) && readFileSync(excludeFile, "utf8").split("\n").includes(`/${PROJECT_LOCK}`);
+  }
+
+  // A first install asks; a rerun keeps the agents already installed for, unless `--agents` names others.
+  const onDisk = firstInstall ? [] : agentsOnDisk(top, current, scope);
+  const agents = args.agents ?? (firstInstall ? (yes ? DEFAULT_AGENTS : await askAgents(io)) : onDisk);
+  // An installed skill missing from a picked agent's folder is added again, so every agent sees it.
+  for (const name of missingFrom(top, agents, picks.filter((pick) => current.includes(pick)), scope).keys()) {
+    if (!update.includes(name) && !keepMine.has(name) && !remove.includes(name)) update.push(name);
+  }
+  // An agent left out takes the skills out of its own folder; the shared `.agents/skills` stays for the rest.
+  const unlinked = new Map<string, string[]>();
+  for (const agent of onDisk.filter((agent) => hasOwnFolder(agent) && !agents.includes(agent))) {
+    const names = current.filter((name) => !remove.includes(name) && isLinkOrFolder(agentFolder(top, agent, name, scope)));
+    for (const name of names) rmSync(agentFolder(top, agent, name, scope), { recursive: true, force: true });
+    if (names.length > 0) unlinked.set(agent, names);
   }
 
   const output = await apply(io, { setDir, clone, top, add: [...add, ...update], remove, offers, agents, user });
@@ -150,7 +158,19 @@ export async function install(io: MoroIo, argv: string[]): Promise<number> {
     missing: [...missing].map(([name, without]) => `${name} (${without.join(", ")})${skipReason(output, name)}`),
     shadowed: user ? [] : shadowedPicks(locations, clone, picks),
     alsoAtUser: picks.filter((name) => atUser.has(name)),
+    unlinked,
   });
+}
+
+async function askAgents(io: MoroIo): Promise<string[]> {
+  return io.prompter.multiSelect({
+    message: "Which agents should these skills install for?",
+    choices: OFFERED_AGENTS.map((agent) => ({ value: agent, label: agent, picked: DEFAULT_AGENTS.includes(agent) })),
+  });
+}
+
+function isLinkOrFolder(path: string): boolean {
+  return existsSync(path) || isLink(path);
 }
 
 /** User level's skills from the clone: the `skills` CLI's user-level lock, and the copies in `~/.agents/skills`. */
@@ -448,15 +468,18 @@ function summary(
     user: boolean;
     missing: string[];
     alsoAtUser?: string[];
+    unlinked?: Map<string, string[]>;
   },
 ): number {
-  const changed = result.add.length > 0 || result.update.length > 0 || result.remove.length > 0;
+  const unlinked = [...(result.unlinked ?? [])];
+  const changed = result.add.length > 0 || result.update.length > 0 || result.remove.length > 0 || unlinked.length > 0;
   if (result.add.length > 0) io.stdout.write(`Installed: ${result.add.join(", ")}.\n`);
   for (const [name, reason] of result.reasons) {
     if (result.add.includes(name)) io.stdout.write(`  ${name}: ${reason}.\n`);
   }
   if (result.update.length > 0) io.stdout.write(`Updated: ${result.update.join(", ")}.\n`);
   if (result.remove.length > 0) io.stdout.write(`Removed: ${result.remove.join(", ")}.\n`);
+  for (const [agent, names] of unlinked) io.stdout.write(`Removed from ${agent}: ${names.join(", ")}.\n`);
   if (changed) io.stdout.write(`Agents: ${result.agents.join(", ")}.\n`);
   if (result.missing.length > 0) {
     io.stdout.write(`${changed ? "\n" : ""}Not installed: ${result.missing.join("; ")}.\n`);

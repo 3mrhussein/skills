@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { createWorld, skillMd, type World } from "./world.js";
+import { AGENTS, createWorld, skillMd, type World } from "./world.js";
 
 const BASE = {
   moro: "0.2.0",
@@ -31,7 +31,7 @@ const installed = (project: string) =>
 test("required skills show ticked and greyed out, and are always installed", async () => {
   const world = setup({ required: ["skills/misc/zoom"] });
 
-  const result = await world.run(["install"], { answers: [["tdd"], "exclude"] });
+  const result = await world.run(["install"], { answers: [["tdd"], "exclude", AGENTS] });
 
   const zoom = (result.prompts[0] as any).choices.find((c: any) => c.value === "zoom");
   expect([zoom.picked, zoom.disabled]).toEqual([true, "required by the set"]);
@@ -42,7 +42,7 @@ test("required skills show ticked and greyed out, and are always installed", asy
 test("dependencies of ticked skills, and theirs, show ticked and greyed out", async () => {
   const world = setup({ dependsOn: { tdd: ["diagnose"], diagnose: ["zoom"] } });
 
-  const result = await world.run(["install"], { answers: [["tdd", "grill"], "exclude"] });
+  const result = await world.run(["install"], { answers: [["tdd", "grill"], "exclude", AGENTS] });
 
   const choices = (result.prompts[0] as any).choices;
   const state = (name: string) => choices.find((c: any) => c.value === name);
@@ -54,7 +54,7 @@ test("dependencies of ticked skills, and theirs, show ticked and greyed out", as
 test("picking a skill whose dependency is unticked installs the dependency and says why", async () => {
   const world = setup({ dependsOn: { zoom: ["diagnose"] } });
 
-  const result = await world.run(["install"], { answers: [["tdd", "zoom"], "exclude"] });
+  const result = await world.run(["install"], { answers: [["tdd", "zoom"], "exclude", AGENTS] });
 
   expect(installed(world.project)).toEqual(["diagnose", "tdd", "zoom"]);
   expect(result.stdout).toContain("diagnose: needed by zoom.");
