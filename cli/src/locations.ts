@@ -14,12 +14,8 @@ export interface Locations {
   deviceFile: string;
   /** The `skills` CLI's user-level lock, where that CLI keeps it. */
   lockFile: string;
-  /** The set's remote, as `git` and the `skills` CLI take it. Not the set's clone. */
-  setRemote: string;
   /** The file `./install.sh` writes with the clone commit this build was made from. */
   builtFrom: string;
-  /** The npm registry the update check reads. */
-  npmRegistry: string;
 }
 
 export function readLocations(env: Env): Locations {
@@ -35,8 +31,6 @@ export function readLocations(env: Env): Locations {
     lockFile: env.XDG_STATE_HOME
       ? join(env.XDG_STATE_HOME, "skills", ".skill-lock.json")
       : join(home, ".agents", ".skill-lock.json"),
-    setRemote: env.MORO_SET_REMOTE || "https://github.com/3mrhussein/skills.git",
     builtFrom: env.MORO_BUILT_FROM || fileURLToPath(new URL("../dist/built-from", import.meta.url)),
-    npmRegistry: env.MORO_NPM_REGISTRY || "https://registry.npmjs.org/",
   };
 }

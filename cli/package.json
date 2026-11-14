@@ -1,7 +1,7 @@
 {
   "name": "@3mrhussein/moro",
   "version": "0.2.0",
-  "description": "Set up, refresh, add to and sync moro's skill set.",
+  "description": "Bootstrap, install, add to and sync moro's skill set.",
   "type": "module",
   "bin": {
     "moro": "dist/bin.js"
