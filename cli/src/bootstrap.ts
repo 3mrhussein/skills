@@ -5,6 +5,7 @@ import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join, relative } from "node:path";
 import { promisify } from "node:util";
+import { DEFAULT_AGENTS } from "./agents.js";
 import { readDevice, writeDevice } from "./device.js";
 import { gitRunner } from "./git.js";
 import { requireNewEnoughMoro } from "./hints.js";
@@ -45,7 +46,7 @@ export async function bootstrap(io: MoroIo, argv: string[]): Promise<number> {
   // The device file is written first, so a failed install leaves it for the rerun.
   if (!recorded) writeDevice(locations.deviceFile, { clone });
   if (!current) {
-    const result = await runSkills(["add", clone, "-g", "-y", "--skill", ENTRY_SKILL], { env: io.env, cwd: locations.home });
+    const result = await runSkills(["add", clone, "-g", "-y", "-a", ...DEFAULT_AGENTS, "--skill", ENTRY_SKILL], { env: io.env, cwd: locations.home });
     if (result.code !== 0) {
       throw new UserError(`Installing ${ENTRY_SKILL} failed:\n${result.output.trim()}\n\nNext: rerun \`${USAGE}\` in the set's clone.`);
     }
@@ -109,7 +110,8 @@ async function retireShadowing(
       for (const dir of [skillsDir, linksDir]) rmSync(join(dir, skill.name), { recursive: true, force: true });
     }
   }
-  const kept = rows.filter((row) => !picked.includes(row.name));
+  // The set's own user-level installs are kept on purpose, so they need no word.
+  const kept = rows.filter((row) => !picked.includes(row.name) && row.likeness.kind !== "set");
   if (kept.length > 0) {
     const lines = kept.map((skill) => `Kept: ${skill.name}. It shadows a project's install; compare it with the set's copy, then rerun ./install.sh.`);
     say(`${retire.length > 0 ? "" : "\n"}${lines.join("\n")}`);
@@ -122,6 +124,7 @@ const LABELS: Record<Likeness["kind"], { order: number; ticked: boolean; against
   same: { order: 0, ticked: true, against: () => "same as the set's", recommended: "remove" },
   from: { order: 1, ticked: true, against: (source) => `from ${source}, like the set's`, recommended: "remove: the set's copy replaces it" },
   differs: { order: 2, ticked: false, against: () => "differs from the set's", recommended: "keep: may hold your edits" },
+  set: { order: 3, ticked: false, against: () => "installed from the set", recommended: "keep: moro install --user keeps it current" },
 };
 /** Column widths past which a cell wraps onto the next line. */
 const AGAINST_WIDTH = 30;

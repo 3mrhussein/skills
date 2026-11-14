@@ -7,7 +7,7 @@ import { join, resolve, sep } from "node:path";
 import { agentFolders, readProjectLock } from "./project.js";
 import { ENTRY_SKILL, localOnlyFolder, skillFolder } from "./set-layout.js";
 
-export const LABELS = ["set changed", "edited here", "gone from the set", "not installed", "loose"] as const;
+export const LABELS = ["set changed", "edited here", "gone from the set", "not installed", "loose", "installed (user)"] as const;
 export type Label = (typeof LABELS)[number];
 
 /** A skill the clone holds. */
@@ -32,9 +32,16 @@ export function cloneCopy(setDir: string, skill: SetSkill, clone = setDir): stri
   return skill.localOnly ? join(clone, localOnlyFolder(skill.name)) : join(setDir, skillFolder(skill.name, skill.group));
 }
 
-/** Compares each skill with the project lock. `current` are the names the lock records. */
-export function diverge(top: string, setDir: string, skills: SetSkill[], current: string[], clone = setDir): Divergence {
-  const lock = readProjectLock(top);
+/** Where a scope keeps its record and its copies: a project's by default, or user level's (see `install --user`). */
+export interface Place {
+  lock: Record<string, { source?: string; computedHash?: string }>;
+  copyOf(name: string): string | undefined;
+}
+
+/** Compares each skill with the project lock (or `place`'s). `current` are the names the lock records. */
+export function diverge(top: string, setDir: string, skills: SetSkill[], current: string[], clone = setDir, place?: Place): Divergence {
+  const lock = place?.lock ?? readProjectLock(top);
+  const projectCopy = (_top: string, name: string) => (place ? place.copyOf(name) : copyIn(top, name));
   const labels = new Map<string, Label[]>();
   const add = (name: string, label: Label) => labels.set(name, [...(labels.get(name) ?? []), label]);
 
@@ -62,6 +69,10 @@ export function diverge(top: string, setDir: string, skills: SetSkill[], current
 
 /** The project's copy of a skill: `<agent folder>/skills/<name>`, `.agents` first. */
 export function projectCopy(top: string, name: string): string | undefined {
+  return copyIn(top, name);
+}
+
+function copyIn(top: string, name: string): string | undefined {
   return agentFolders(top)
     .map((entry) => join(top, entry, "skills", name))
     .find((path) => existsSync(path) && statSync(path).isDirectory());
@@ -77,7 +88,7 @@ export function reportLines(divergence: Divergence): string[] {
 
 /** True when the project differs from the clone in a way a rerun fixes (a skill that merely isn't installed doesn't count). */
 export function needsRerun(divergence: Divergence): boolean {
-  return [...divergence.labels.values()].some((found) => found.some((label) => label !== "not installed"));
+  return [...divergence.labels.values()].some((found) => found.some((label) => label !== "not installed" && label !== "installed (user)"));
 }
 
 /** A unified diff of the project's copy against the clone's (empty when they match). */
@@ -110,7 +121,7 @@ export function hashFolder(folder: string): string {
 }
 
 /** True when a lock entry's source is the clone or a folder inside it. */
-function fromClone(top: string, clone: string, source: string | undefined): boolean {
+export function fromClone(top: string, clone: string, source: string | undefined): boolean {
   if (!source) return false;
   const real = (path: string) => {
     try {

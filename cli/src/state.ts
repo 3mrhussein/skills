@@ -3,8 +3,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { findClone } from "./device.js";
 import { type Git, gitRunner } from "./git.js";
-import { BUILD_OLDER, SYNC_OLD, UNPUSHED, UP_TO_DATE } from "./hints.js";
-import { projectStatus } from "./install.js";
+import { BUILD_OLDER, RERUN_USER, SYNC_OLD, UNPUSHED, UP_TO_DATE } from "./hints.js";
+import { projectStatus, userLevelReport } from "./install.js";
 import { readLocations } from "./locations.js";
 import type { MoroIo } from "./main.js";
 import { MANIFEST_FILE } from "./manifest.js";
@@ -28,14 +28,17 @@ export async function status(io: MoroIo): Promise<number> {
   lines.push(unpushed.length ? `Unpushed: ${unpushed.length}` : "Unpushed: none");
   for (const commit of unpushed) lines.push(`  ${commit}`);
   lines.push(`Last sync: ${lastSync ? lastSync.slice(0, 10) : "never"}`, "");
-  lines.push(await nextStep(git, clone, locations.builtFrom, unpushed.length > 0, lastSync));
+  const user = userLevelReport(io);
+  if (user.lines.length > 0) lines.push("User level against the set:", ...user.lines.map((line) => `  ${line}`), "");
+  lines.push(await nextStep(git, clone, locations.builtFrom, unpushed.length > 0, lastSync, user.rerun));
   io.stdout.write(`${lines.join("\n")}\n`);
   return 0;
 }
 
 /** The one next step, in order: build older than the clone's cli/, unpushed commits, old sync, up to date. */
-async function nextStep(git: Git, clone: string, builtFrom: string, unpushed: boolean, lastSync: string): Promise<string> {
+async function nextStep(git: Git, clone: string, builtFrom: string, unpushed: boolean, lastSync: string, userRerun: boolean): Promise<string> {
   if (await buildIsOlder(git, clone, builtFrom)) return BUILD_OLDER;
+  if (userRerun) return RERUN_USER;
   if (unpushed) return UNPUSHED;
   if (lastSync) return Date.now() - Date.parse(lastSync) > SYNC_STALE_DAYS * DAY_MS ? SYNC_OLD : UP_TO_DATE;
   return hasUpstreamSkills(clone) ? SYNC_OLD : UP_TO_DATE;

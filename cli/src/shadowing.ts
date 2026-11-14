@@ -3,7 +3,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { hashFolder } from "./divergence.js";
+import { fromClone, hashFolder } from "./divergence.js";
 import { isFrom, type LockEntry, readLock } from "./lock.js";
 import type { Locations } from "./locations.js";
 import { readManifest } from "./manifest.js";
@@ -21,7 +21,9 @@ export type Likeness =
   /** Installed from the set's upstream skill's source and path, and unedited since. */
   | { kind: "from"; source: string }
   /** Anything else; `files` are the paths that differ, sorted. */
-  | { kind: "differs"; files: string[] };
+  | { kind: "differs"; files: string[] }
+  /** Installed from the clone by \`moro install --user\`: the set's own user-level copy. */
+  | { kind: "set" };
 
 export interface ShadowingSkill {
   /** Its user-level name. */
@@ -63,7 +65,9 @@ export function readUserLevel(locations: Locations, clone: string, lock: Record<
     const userCopy = [join(skillsDir, name), join(linksDir, name)].find((folder) => existsSync(folder)) ?? join(skillsDir, name);
     const files = differingFiles(userCopy, join(clone, setFolder));
     const likeness: Likeness =
-      files.length === 0
+      entry && [clone, `${clone}-try`].some((root) => fromClone(locations.home, root, entry.source))
+        ? { kind: "set" }
+        : files.length === 0
         ? { kind: "same" }
         : entry && upstream === setName && unedited(userCopy, entry)
           ? { kind: "from", source: entry.source }
@@ -76,7 +80,7 @@ export function readUserLevel(locations: Locations, clone: string, lock: Record<
 /** The picked set skills a user-level skill shadows, sorted, each as `name`, or `name (as <user-level name>)`. */
 export function shadowedPicks(locations: Locations, clone: string, picks: string[]): string[] {
   return readUserLevel(locations, clone, readLock(locations.lockFile))
-    .shadowing.filter((skill) => picks.includes(skill.setName))
+    .shadowing.filter((skill) => picks.includes(skill.setName) && skill.likeness.kind !== "set")
     .map((skill) => (skill.name === skill.setName ? skill.name : `${skill.setName} (as ${skill.name})`))
     .sort();
 }

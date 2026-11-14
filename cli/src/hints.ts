@@ -14,6 +14,7 @@ export const BUILD_OLDER = "Next: rerun ./install.sh, because the moro build is 
 export const UNPUSHED = "Next: push the clone's commits (git push).";
 export const SYNC_OLD = "Next: run `moro sync` to check upstream skills.";
 export const RERUN_SETUP = "Next: rerun `/setup-moro-skills`.";
+export const RERUN_USER = "Next: run `moro install --user`.";
 export const UP_TO_DATE = "Up to date.";
 
 /**
