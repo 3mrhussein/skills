@@ -66,7 +66,7 @@ _Avoid_: rebrand, patch, replacement
 
 **Hand edit**:
 A change the owner made to an upstream skill beyond its rename rules: the difference between the skill set's copy and the source's text at the pin with the rename rules applied.
-_Avoid_: local edit, customisation, override
+_Avoid_: local edit, customisation, override, tweak
 
 **Intake**:
 Bringing a skill from a source into the skill set as an upstream skill: the source's text at a commit, with that source's rename rules applied and nothing else changed, which becomes the skill's first pin.
@@ -77,12 +77,38 @@ A change a source made to an upstream skill after its pin.
 _Avoid_: update, patch
 
 **Sync**:
-Reviewing the upstream changes since each pin, one upstream skill at a time, and accepting or skipping each skill's change as a whole.
+Reviewing the upstream changes since each pin, one upstream skill at a time, and accepting, skipping or falling back on each skill's change as a whole.
 _Avoid_: update, upgrade, pull
+
+**Fallback**:
+Taking an upstream change by dropping the skill's hand edits, so that the set's copy becomes the source's latest text with its rename rules applied.
+_Avoid_: reset, revert, original
 
 **Skipped change**:
 An upstream change the owner declined for one upstream skill. The pin moves past it anyway, the manifest lists its commits under that skill, and from then on the set's copy keeps it out as part of the skill's hand edits.
 _Avoid_: rejected change, ignored update
+
+### Trying and checking
+
+**Candidate**:
+One way to take an upstream change to a skill with hand edits: the fallback, or the adapted copy, where the hand edits are merged with the change.
+_Avoid_: variant, option
+
+**Trial**:
+Trying a skill's candidates side by side before one reaches the set: each on its own branch of the clone, used in projects that install from that branch.
+_Avoid_: lab, sandbox, experiment
+
+**Workflow check**:
+Checking that the set's skills still fit together: every skill another skill calls is in the set, can be called, and is listed among the caller's dependencies.
+_Avoid_: compatibility check, lint
+
+**Impact**:
+The skills a change to one skill reaches through the skills that call it: its callers directly, and their callers indirectly.
+_Avoid_: blast radius, dependents
+
+**Audit**:
+Comparing each skill at three layers: its source (has it moved past the pin?), the set (is the copy the source's text or hand-edited?) and the current project (does its copy match the set's?).
+_Avoid_: gate, status, report
 
 ### Devices and projects
 
