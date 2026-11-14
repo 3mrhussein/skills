@@ -42,9 +42,12 @@ export async function install(io: MoroIo, argv: string[]): Promise<number> {
   const current = installedSkills(top);
   const firstInstall = current.length === 0;
 
-  const picks = yes
-    ? offers.filter((offer) => (firstInstall ? offer.recommended : current.includes(offer.name))).map((offer) => offer.name)
-    : await io.prompter.multiSelect(offerChoices(offers, firstInstall ? new Set(offers.filter((o) => o.recommended).map((o) => o.name)) : new Set(current)));
+  const rules = readRules(clone, offers);
+  const start = offers.filter((offer) => (firstInstall ? offer.recommended : current.includes(offer.name))).map((offer) => offer.name);
+  const chosen = yes
+    ? start
+    : await io.prompter.multiSelect(offerChoices(offers, new Set(start), lockedSkills(rules, start)));
+  const { picks, reasons } = withLocked(rules, chosen);
 
   const { add, remove } = plan(offers, current, picks);
 
@@ -61,7 +64,7 @@ export async function install(io: MoroIo, argv: string[]): Promise<number> {
   if (keepOut && add.length > 0) excludeFromGit(top, excludeFile, add, true);
   else if (localAdds.length > 0) excludeFromGit(top, excludeFile, localAdds, false);
 
-  return summary(io, { add, remove, keepOut });
+  return summary(io, { add, remove, keepOut, reasons });
 }
 
 function parseArgs(argv: string[]): boolean {
@@ -100,6 +103,56 @@ function readOffers(clone: string): Offer[] {
   return [...shared, ...local];
 }
 
+/** What the set insists on: required skills, and each skill's dependencies. */
+interface Rules {
+  required: string[];
+  dependsOn: Record<string, string[]>;
+}
+
+/** The manifest's required and dependsOn; stops, before anything changes, on an entry the set doesn't hold. */
+function readRules(clone: string, offers: Offer[]): Rules {
+  const manifest = readManifest(clone, MORO_VERSION);
+  const held = new Set(offers.map((offer) => offer.name));
+  const heldPaths = new Set(offers.map((offer) => `skills/${offer.group}/${offer.name}`));
+  const wrong = (entry: string, where: string): never => {
+    throw new UserError(
+      `manifest.json names ${entry} in ${where}, and the set doesn't hold it.\n\nNext: fix that entry in manifest.json, then run \`${USAGE}\` again.`,
+    );
+  };
+  const required: string[] = [];
+  for (const path of manifest.required ?? []) {
+    if (path.startsWith("local-only/")) continue;
+    if (!heldPaths.has(path)) wrong(path, "required");
+    required.push(basename(path));
+  }
+  for (const [key, needs] of Object.entries(manifest.dependsOn)) {
+    if (!held.has(key)) wrong(key, "dependsOn");
+    for (const need of needs) if (!held.has(need)) wrong(need, `dependsOn of ${key}`);
+  }
+  return { required, dependsOn: manifest.dependsOn };
+}
+
+/** Why each skill is locked on: required, or needed by a ticked skill (through any depth). */
+function lockedSkills(rules: Rules, picks: string[]): Map<string, string> {
+  const locked = new Map<string, string>(rules.required.map((name) => [name, "required by the set"]));
+  const queue = [...rules.required, ...picks];
+  for (const name of queue) {
+    for (const need of rules.dependsOn[name] ?? []) {
+      if (locked.has(need)) continue;
+      locked.set(need, `needed by ${name}`);
+      queue.push(need);
+    }
+  }
+  return locked;
+}
+
+/** The picks plus everything locked on, and why each skill the owner didn't pick got added. */
+function withLocked(rules: Rules, chosen: string[]): { picks: string[]; reasons: Map<string, string> } {
+  const locked = lockedSkills(rules, chosen);
+  const reasons = new Map([...locked].filter(([name]) => !chosen.includes(name)));
+  return { picks: [...new Set([...chosen, ...locked.keys()])], reasons };
+}
+
 /** The skills in the project's `skills-lock.json`. */
 function installedSkills(top: string): string[] {
   try {
@@ -111,13 +164,14 @@ function installedSkills(top: string): string[] {
 }
 
 /** Recommended skills first, then experimental ones, each under its group; `ticked` start picked. */
-function offerChoices(offers: Offer[], ticked: Set<string>): MultiSelectRequest {
+function offerChoices(offers: Offer[], ticked: Set<string>, locked: Map<string, string>): MultiSelectRequest {
   const choice = (offer: Offer, section: string) => ({
     value: offer.name,
     label: offer.name,
     section,
     group: offer.group,
-    picked: ticked.has(offer.name),
+    picked: ticked.has(offer.name) || locked.has(offer.name),
+    ...(locked.has(offer.name) ? { disabled: locked.get(offer.name)! } : {}),
   });
   return {
     message: "Which skills should this project have?",
@@ -199,12 +253,15 @@ function isLink(path: string): boolean {
   }
 }
 
-function summary(io: MoroIo, result: { add: string[]; remove: string[]; keepOut: boolean }): number {
+function summary(io: MoroIo, result: { add: string[]; remove: string[]; keepOut: boolean; reasons: Map<string, string> }): number {
   if (result.add.length === 0 && result.remove.length === 0) {
     io.stdout.write("Up to date.\n");
     return 0;
   }
   if (result.add.length > 0) io.stdout.write(`Installed: ${result.add.join(", ")}.\n`);
+  for (const [name, reason] of result.reasons) {
+    if (result.add.includes(name)) io.stdout.write(`  ${name}: ${reason}.\n`);
+  }
   if (result.remove.length > 0) io.stdout.write(`Removed: ${result.remove.join(", ")}.\n`);
   const next = result.keepOut
     ? "restart your agent in this project; the skills are kept out of git."

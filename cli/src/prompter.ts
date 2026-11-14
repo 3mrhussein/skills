@@ -92,7 +92,7 @@ export function createTerminalPrompter(streams: {
           group = choice.group;
           out.write(`  ${group}\n`);
         }
-        if (choice.disabled) out.write(`${grey(`  -  ${choice.label} (${choice.disabled})`)}\n`);
+        if (choice.disabled) out.write(`${grey(`  -  ${choice.picked ? "[x] " : ""}${choice.label} (${choice.disabled})`)}\n`);
         else out.write(`  ${++number}. ${tick(choice)}${choice.label}\n`);
       }
       const hint =
