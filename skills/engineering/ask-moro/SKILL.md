@@ -95,3 +95,14 @@ Off the main flow entirely.
 ## Precondition
 
 **`/setup-moro-skills`**: run before your first engineering flow to configure the issue tracker, triage labels, and doc layout the other skills assume. Custom issue trackers also work.
+
+## The set
+
+These skills come from moro's set: a clone of `3mrhussein/skills` on this device, installed one project at a time. Jobs on the set itself:
+
+- **Set up a project, or catch it up with the set** → **`/setup-moro-skills`**. It runs `moro install`, then the repo setup above.
+- **Bring in a skill from another repo, take upstream changes, or try a change before it reaches the set** → **`manage-moro-skills`**, in the set's clone. It drives `moro add`, `moro sync` and `moro try`.
+- **Where does this skill stand?** (its source, the set's copy, this project's copy) → **`moro audit`**, which `manage-moro-skills` explains.
+- **Where does this project or device stand, and what's next?** → **`moro`**, with no arguments.
+
+For a job this map doesn't name, read the frontmatter (`name`, `description`) of each installed skill it doesn't mention, in `.claude/skills/*/SKILL.md` and `~/.claude/skills/*/SKILL.md`: the owner's own skills and those from other sources. Route to the one whose description fits. Read the files rather than your list of available skills, which leaves out skills marked `disable-model-invocation`.
