@@ -90,6 +90,10 @@ _Avoid_: rejected change, ignored update
 Making one device ready: building the CLI from the clone, recording where the clone is, putting `/setup-moro-skills` at user level, and retiring the shadowing skills the owner picks. Every other user-level skill stays.
 _Avoid_: machine setup, install, init
 
+**Entry skill**:
+`/setup-moro-skills`: the one skill bootstrap keeps at user level on every device, and the default way to set up a project, ahead of the CLI. Project installs leave it out, and it is never a shadowing skill.
+_Avoid_: bootstrap skill, setup skill
+
 **Project install**:
 Copying the skills a project picks from the device's clone into that project. Rerunning it is how a project catches up with the clone.
 _Avoid_: setup (alone), refresh, sync

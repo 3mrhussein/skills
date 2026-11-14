@@ -12,27 +12,29 @@ You need node 22.20 or newer, and git.
 `./install.sh` builds the `moro` CLI in `cli/`, links it with `npm link`, and hands over to `moro bootstrap`. Bootstrap changes four things on the device:
 
 - **The device file.** `~/.config/moro/config.json` records where the clone is (`$XDG_CONFIG_HOME/moro/` when that is set). Every other `moro` command reads it.
-- **Other user-level skills.** Bootstrap lists every skill in `~/.agents/skills` and `~/.claude/skills`, then asks once whether to remove them, so none shadows a project's copy. Yes is the default. The Claude app's own skills in `~/.claude/skills/synced` stay.
-- **A snapshot.** Before removing anything, bootstrap saves those folders and the user-level lock to `~/.config/moro/backups/<date>.tar.gz` and prints how to restore them: `tar -xzf <snapshot> -C /`.
-- **`/setup-moro-skills`.** It is installed at user level from the clone, and is the only skill left there.
+- **Shadowing skills.** A user-level skill in `~/.agents/skills` or `~/.claude/skills` shadows when it shares a name with a set skill, or was installed from the same upstream skill under any name. Bootstrap shows them in one numbered table that is also the picker, each labelled against the set's copy with a recommendation. `same as the set's` and `from <source>, like the set's` (unedited since install) start ticked; `differs from the set's` starts unticked, since it may hold your edits. Every other user-level skill stays, named in `Left at user level:`, and so does `~/.claude/skills/synced`.
+- **A snapshot.** Before the first removal, bootstrap saves those folders and the user-level lock to `~/.config/moro/backups/<date>.tar.gz` and prints how to restore them: `tar -xzf <snapshot> -C /`.
+- **`/setup-moro-skills`, the entry skill.** It is installed at user level from the clone, and every rerun brings it up to date. It is the default way to set up a project, so it is ready in any project; project installs leave it out.
 
 A first run ends like this:
 
 ```
 Recorded the clone.
-Removed: <your other user-level skills>.
+Removed: <the shadowing skills you picked>.
 Installed: setup-moro-skills.
 
 Next: open a project and run `/setup-moro-skills`
 ```
 
-`./install.sh --yes` takes every default without asking.
+`./install.sh --yes` takes every default without asking: it removes the ticked shadowing skills and keeps the rest.
+
+Nothing remembers a skill you kept, so every rerun asks about each shadowing skill still there, including one a pull brought into the set.
 
 `install.sh` finds `moro` for its own run. If a new shell says `moro: command not found`, put npm's global bin on your PATH: `export PATH="$(npm prefix -g)/bin:$PATH"`.
 
 ### After a pull
 
-Rerun `./install.sh`. It rebuilds and relinks `moro`, reinstalls `/setup-moro-skills` if it changed, and otherwise says `Up to date.` Until you rerun it, `moro` in the clone prints:
+Rerun `./install.sh`. It rebuilds and relinks `moro`, reinstalls `/setup-moro-skills` if it changed, offers to retire any skill the pull made shadowing, and otherwise says `Up to date.` Until you rerun it, `moro` in the clone prints:
 
 ```
 Next: rerun ./install.sh, because the moro build is older than the clone's cli/.
@@ -44,7 +46,7 @@ Next: open a project and run `/setup-moro-skills`.
 
 Open the project in your agent and run `/setup-moro-skills`. It runs `moro install`, which shows how the project differs from the clone and lets you pick skills, then it prepares the repo. On a first install you choose to commit the skills or keep them out of git.
 
-Rerun `/setup-moro-skills` to catch the project up with the clone, or to change the picks.
+Rerun `/setup-moro-skills` (or `moro install`) to catch the project up with the clone, or to change the picks. When a user-level skill shadows a pick, `moro install` names it and ends with `Next: rerun ./install.sh in the set's clone.`
 
 ## Local-only skills
 
