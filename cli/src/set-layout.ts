@@ -43,6 +43,13 @@ function subfolders(setDir: string, folder: string): string[] {
     .sort();
 }
 
+/** Every skill in `local-only/` with its group, sorted by group, then name. */
+export function localOnlySkills(setDir: string): { name: string; group: string }[] {
+  return subfolders(setDir, LOCAL_ONLY_DIR).flatMap((group) =>
+    subfolders(setDir, join(LOCAL_ONLY_DIR, group)).map((name) => ({ name, group })),
+  );
+}
+
 /** Every skill in `skills/` with its group, sorted by group, then name. */
 export function skillsWithGroups(setDir: string): { name: string; group: string }[] {
   return groupsInSet(setDir).flatMap((group) =>
