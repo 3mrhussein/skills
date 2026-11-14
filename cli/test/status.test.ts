@@ -2,7 +2,6 @@ import { expect, test } from "vitest";
 import { join } from "node:path";
 import { createWorld, writeFiles } from "./world.js";
 
-const deviceFile = JSON.stringify({ clone: "/somewhere/clone" });
 const NEXT = "Next: run ./install.sh in the set's clone.";
 
 test("every command but bootstrap and --version stops without the device file", async () => {
@@ -26,6 +25,7 @@ test("a device file that records no clone counts as none", async () => {
 
 test("moro finds the device file in the home's config folder", async () => {
   const world = createWorld();
+  const deviceFile = JSON.stringify({ clone: world.clone });
   writeFiles(world.home, { ".config/moro/config.json": deviceFile });
 
   const result = await world.run([]);
@@ -36,6 +36,7 @@ test("moro finds the device file in the home's config folder", async () => {
 
 test("XDG_CONFIG_HOME moves moro's config folder", async () => {
   const world = createWorld();
+  const deviceFile = JSON.stringify({ clone: world.clone });
   const configHome = join(world.root, "xdg-config");
   world.env.XDG_CONFIG_HOME = configHome;
   writeFiles(world.home, { ".config/moro/config.json": deviceFile });

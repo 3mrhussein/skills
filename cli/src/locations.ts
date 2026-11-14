@@ -1,6 +1,7 @@
 // Where moro looks for things. Each comes from the environment so tests can
 // point it at a temporary world; the defaults are the real ones.
 import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { isAbsolute, join } from "node:path";
 
 export type Env = Record<string, string | undefined>;
@@ -15,6 +16,8 @@ export interface Locations {
   lockFile: string;
   /** The set's remote, as `git` and the `skills` CLI take it. Not the set's clone. */
   setRemote: string;
+  /** The file `./install.sh` writes with the clone commit this build was made from. */
+  builtFrom: string;
   /** The npm registry the update check reads. */
   npmRegistry: string;
 }
@@ -33,6 +36,7 @@ export function readLocations(env: Env): Locations {
       ? join(env.XDG_STATE_HOME, "skills", ".skill-lock.json")
       : join(home, ".agents", ".skill-lock.json"),
     setRemote: env.MORO_SET_REMOTE || "https://github.com/3mrhussein/skills.git",
+    builtFrom: env.MORO_BUILT_FROM || fileURLToPath(new URL("../dist/built-from", import.meta.url)),
     npmRegistry: env.MORO_NPM_REGISTRY || "https://registry.npmjs.org/",
   };
 }
