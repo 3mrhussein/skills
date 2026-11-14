@@ -7,5 +7,5 @@ Upstream skills from Matt Pocock's set are renamed to say moro. The rename is st
 - Rules are whole-word: Matt's text has "matt" inside `frontmatter`, `matters` and `formatting`.
 - A skill's folder name and frontmatter `name` always equal its manifest key, so renaming a skill (for the moro rename or a name clash) is choosing its key. A rule on its source makes that source's other skills use the new name.
 - Only Matt's source has rules for now. Other sources keep their own names.
-- Rules also rename file names inside a skill's folder, and they can hold back a source's convention, not only names: Matt's `GLOSSARY.md` and `GLOSSARY-MAP.md` become `CONTEXT.md` and `CONTEXT-MAP.md` (decided with sync, 2026-11-10).
+- Rules also rename file names inside a skill's folder, and they can hold back a source's convention, not only names: Matt's `GLOSSARY.md` and `GLOSSARY-MAP.md` were to become `CONTEXT.md` and `CONTEXT-MAP.md` (decided with sync, 2026-11-10). Revised 2026-11-14: the set follows Matt's `GLOSSARY.md` naming, so no rule holds it back.
 - Changing a source's rules makes sync re-render that source's skills: a three-way merge from the old rules' text to the new rules' text, at the same pin. Otherwise every copy would look hand-edited.

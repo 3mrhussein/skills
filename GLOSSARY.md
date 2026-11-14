@@ -1,0 +1,111 @@
+# Moro Skills
+
+The owner's own set of agent skills: skills copied from other repos and skills the owner writes, kept in one repo that each device clones and installs from, one project at a time.
+
+## Language
+
+### The set
+
+**Skill set**:
+Every skill this repo holds, named after the owner's nickname, moro.
+_Avoid_: plugin, collection, library
+
+**Clone**:
+A device's copy of the skill set's repo. On that device it is the only source the set's skills install from.
+_Avoid_: checkout, local repo, mirror
+
+**Group**:
+A folder of the set that skills sit in, such as `engineering`. Every skill belongs to exactly one group.
+_Avoid_: bucket, category
+
+**Local-only skill**:
+A skill kept in one clone's `local-only/` folder and never pushed, so it exists on that device alone.
+_Avoid_: private skill, device skill, work skill
+
+**Recommended skill**:
+A skill the set offers ticked when a project first installs. Every local-only skill is recommended.
+_Avoid_: default skill, core skill
+
+**Experimental skill**:
+A skill in the set that isn't recommended: offered, but not ticked.
+_Avoid_: optional skill, beta skill
+
+**Required skill**:
+A recommended skill that drives the owner's workflow, so a project can't leave it out.
+_Avoid_: core skill, mandatory skill
+
+**Dependency**:
+A skill that another skill needs installed next to it. A project can't leave out a dependency of a skill it keeps.
+_Avoid_: requirement, prerequisite
+
+### Where skills come from
+
+**Source**:
+A repo the skill set copies skills from, such as Matt Pocock's skills or pstack.
+_Avoid_: upstream repo, vendor, origin
+
+**Upstream skill**:
+A skill copied from a source and pinned to one of its commits. Its text is the source's text with that source's rename rules applied, plus any hand edits.
+_Avoid_: vendored skill, third-party skill, Matt's skill
+
+**Own skill**:
+A skill with no source: one the owner wrote, or an upstream skill the owner detached from its source by dropping it from the manifest.
+_Avoid_: custom skill, personal skill
+
+**Pin**:
+The commit of its source that an upstream skill was last taken from.
+_Avoid_: version, lock
+
+**Manifest**:
+The skill set's record of its sources, upstream skills, recommended and required skills, and dependencies.
+_Avoid_: lock file, registry
+
+**Rename rule**:
+A literal, whole-word substitution that a source's text and file names always go through on their way into the skill set, such as turning Matt's names into moro ones.
+_Avoid_: rebrand, patch, replacement
+
+**Hand edit**:
+A change the owner made to an upstream skill beyond its rename rules: the difference between the skill set's copy and the source's text at the pin with the rename rules applied.
+_Avoid_: local edit, customisation, override
+
+**Intake**:
+Bringing a skill from a source into the skill set as an upstream skill: the source's text at a commit, with that source's rename rules applied and nothing else changed, which becomes the skill's first pin.
+_Avoid_: import, vendoring
+
+**Upstream change**:
+A change a source made to an upstream skill after its pin.
+_Avoid_: update, patch
+
+**Sync**:
+Reviewing the upstream changes since each pin, one upstream skill at a time, and accepting or skipping each skill's change as a whole.
+_Avoid_: update, upgrade, pull
+
+**Skipped change**:
+An upstream change the owner declined for one upstream skill. The pin moves past it anyway, the manifest lists its commits under that skill, and from then on the set's copy keeps it out as part of the skill's hand edits.
+_Avoid_: rejected change, ignored update
+
+### Devices and projects
+
+**Bootstrap**:
+Making one device ready: building the CLI from the clone, recording where the clone is, putting `/setup-moro-skills` at user level, and retiring every other user-level skill.
+_Avoid_: machine setup, install, init
+
+**Project install**:
+Copying the skills a project picks from the device's clone into that project. Rerunning it is how a project catches up with the clone.
+_Avoid_: setup (alone), refresh, sync
+
+**Divergence**:
+A difference between a project's installed skills and the clone: the set changed a skill, the project edited its copy, the set no longer holds it, or a set skill isn't installed.
+_Avoid_: drift, staleness, update
+
+**Repo setup**:
+Making one project repo ready for the set's engineering skills: its issue tracker, triage labels and domain docs.
+_Avoid_: setup (alone), project config
+
+**Lock file**:
+The `skills` CLI's record of what is installed in one project or at user level. It belongs to that project or device, not to the skill set.
+_Avoid_: manifest
+
+**Loose skill**:
+A skill folder in a project, or at user level, that the lock file there doesn't record, such as one the owner wrote straight into the skills folder.
+_Avoid_: local skill, unlocked folder, untracked skill, stray skill
