@@ -84,6 +84,7 @@ Every command ends with a `Next:` line or `Up to date.` Each prompt is a selecti
 | `moro sync` | the clone or a trial's worktree | Walks upstream changes and accepts, skips or falls back on each skill | `--yes` accepts the changes that merge cleanly without touching a hand edit, and leaves the rest for later. Fallback drops a skill's hand edits and takes the upstream text as it is; it's offered only for a skill with hand edits. `moro sync status` only reads. `show <skill>`, `accept <skill>`, `skip <skill>` and `fallback <skill>` handle one skill. `show` names the skills that call it, and an accept or fallback warns with the workflow check's findings. |
 | `moro try <skill>` | anywhere | A trial of an upstream change: the fallback and the adapted copy of a skill with hand edits (one candidate without), each on a `try/` branch in a worktree beside the clone (`<clone>-try/`). Prints each candidate's diff against `main`, workflow check, impact and `moro install --from` line; `main` stays as it is. Rerun to see an open trial. | `--json` for `manage-moro-skills`. `--keep fallback\|adapted` merges that candidate into `main`, removes the trial and offers to push (`--yes` pushes). `--drop` removes the trial. |
 | `moro check [folder]` | anywhere | The workflow check: every skill another skill calls is in the folder (the clone by default), can be called, and is listed in the caller's `dependsOn` | `--impact <skill>` lists the skills that call it, directly or through another. `--json` for `manage-moro-skills`. Exits 1 on any finding. |
+| `moro audit` | anywhere | Where each skill stands at three layers: its source (`up to date`, `upstream +N commits`, `removed upstream`, `unreachable` or `own skill`), the set (`source's text` or `hand edits`) and, inside a project, the project (its labels or `same as set`). Below the table: the skills to try, then the sources' skills the set doesn't hold. Changes nothing. Inside a trial's worktree it reads that worktree. | `--json` for `manage-moro-skills`. Exits 1 when a source can't be reached. |
 | `moro bootstrap` | the clone | The last step of `./install.sh` | `--yes` |
 | `moro --version` | anywhere | Prints the CLI's version | |
 
@@ -91,4 +92,4 @@ Every command ends with a `Next:` line or `Up to date.` Each prompt is a selecti
 
 - `/ask-moro` routes any job to the right skill.
 - `moro` prints where the clone or the project stands, and the next step.
-- To add, sync or try skills from other repos, open your agent in this clone and ask: `manage-moro-skills` drives `moro add`, `moro sync` and `moro try`.
+- To add, sync or try skills from other repos, or see where a skill stands, open your agent in this clone and ask: `manage-moro-skills` drives `moro add`, `moro sync`, `moro try` and `moro audit`.

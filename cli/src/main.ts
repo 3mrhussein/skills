@@ -1,4 +1,5 @@
 import { add } from "./add.js";
+import { audit } from "./audit.js";
 import type { Prompter } from "./prompter.js";
 import { type Env, readLocations } from "./locations.js";
 import { bootstrap } from "./bootstrap.js";
@@ -58,6 +59,9 @@ async function run(io: MoroIo): Promise<number> {
     case "check":
       requireDevice(io);
       return check(io, args);
+    case "audit":
+      requireDevice(io);
+      return audit(io, args);
     case "bootstrap":
       return bootstrap(io, args);
     case "--version":

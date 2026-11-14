@@ -711,6 +711,65 @@ export async function changeKind(io: MoroIo, setDir: string, key: string): Promi
   return offersFallback(skill) ? "hand edits" : "plain";
 }
 
+/** An upstream skill as `moro audit` sees it: its source past the pin, and the set's copy against the pin. */
+export interface UpstreamStanding {
+  source: "up to date" | "changed" | "removed" | "unreachable";
+  /** Upstream commits touching the skill since the pin, merges left out; undefined when unreachable. */
+  commits: number | undefined;
+  /** Paths where the set's copy differs from the pin rendered; undefined when the pin can't be read. */
+  handEdits: string[] | undefined;
+  /** An upstream change with hand edits, so `moro try` makes both candidates. */
+  tryable: boolean;
+}
+
+export interface Standings {
+  /** Each upstream skill the set holds a folder for, by key. */
+  skills: Map<string, UpstreamStanding>;
+  /** Source ids that couldn't be reached, with why. */
+  unreachable: Map<string, string>;
+  /** Skills in the sources that the set doesn't hold. */
+  newUpstream: { source: string; name: string; path: string }[];
+}
+
+/** Every upstream skill's standing, read-only: what sync would find, plus hand edits where upstream hasn't moved. */
+export async function upstreamStandings(io: MoroIo, setDir: string): Promise<Standings> {
+  const git = gitRunner(io.env);
+  const manifest = readManifest(setDir, MORO_VERSION);
+  const found = await pendingSkills(git, setDir, manifest);
+  try {
+    const skills = new Map<string, UpstreamStanding>();
+    for (const [key, entry] of Object.entries(manifest.skills)) {
+      const folder = existingSkillFolder(setDir, key);
+      if (!folder) continue;
+      if (found.unreachable.has(entry.source)) {
+        skills.set(key, { source: "unreachable", commits: undefined, handEdits: undefined, tryable: false });
+        continue;
+      }
+      const pending = found.pending.find((skill) => skill.key === key);
+      if (pending) {
+        skills.set(key, {
+          source: pending.removed ? "removed" : "changed",
+          commits: pending.commits.length,
+          handEdits: pending.handEdits,
+          tryable: !pending.pure && offersFallback(pending),
+        });
+        continue;
+      }
+      // No upstream change, so hand edits are the set's copy against the pin rendered.
+      const rules = manifest.sources[entry.source]!.rename;
+      const base = await pinFiles(git, found.fetches.get(entry.source)!.dir, entry).then(
+        (files) => render(files, rules, key),
+        () => undefined,
+      );
+      const handEdits = base && differing(base, readSkillFiles(join(setDir, folder)));
+      skills.set(key, { source: "up to date", commits: 0, handEdits, tryable: false });
+    }
+    return { skills, unreachable: found.unreachable, newUpstream: found.newUpstream };
+  } finally {
+    release(found.fetches);
+  }
+}
+
 /**
  * One decision on a candidate's worktree, as `moro sync <action> <key>` makes it there, printing nothing.
  * Returns the files an accept left conflict markers in; empty when the decision is committed.

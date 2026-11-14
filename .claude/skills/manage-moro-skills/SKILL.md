@@ -1,11 +1,11 @@
 ---
 name: manage-moro-skills
-description: Drive `moro add`, `moro sync` and `moro try` while developing the set. Use when bringing in a skill from another repo, taking upstream changes, trying a change's candidates side by side, or resolving sync conflicts.
+description: Drive `moro add`, `moro sync`, `moro try` and `moro audit` while developing the set. Use when bringing in a skill from another repo, taking upstream changes, trying a change's candidates side by side, resolving sync conflicts, or asking where a skill stands.
 ---
 
 # Manage moro skills
 
-Run from the set's clone. Drive `moro` through its no-prompt modes (`--yes`, `status`, `show`, `accept`, `skip`, `fallback`, `check --json`, `try --json`, `try --keep`, `try --drop`) and put each decision to the owner as a selection: recommended option first, a typed answer allowed. The owner never meets a CLI prompt.
+Run from the set's clone. Drive `moro` through its no-prompt modes (`--yes`, `status`, `show`, `accept`, `skip`, `fallback`, `check --json`, `audit --json`, `try --json`, `try --keep`, `try --drop`) and put each decision to the owner as a selection: recommended option first, a typed answer allowed. The owner never meets a CLI prompt.
 
 ## Closing lines
 
@@ -37,6 +37,10 @@ Done when every listed skill is accepted, skipped, fallen back or left for later
 ## Conflicts
 
 A conflicting accept leaves diff3 markers in the skill's folder, moves the pin and commits nothing. Read the markers, propose a resolution per hunk that keeps the owner's hand edit and the upstream change, and ask the owner to confirm (accept the proposal first, typed alternative allowed). Write it, then run `moro sync accept <skill>`. It commits once no `<<<<<<<` or `>>>>>>>` lines remain. When the owner would rather drop their hand edits, `moro sync fallback <skill>` replaces the markers with the upstream text and commits. Other skills can be accepted or skipped meanwhile; each conflict waits on its own markers only.
+
+## Audit
+
+For "where does this skill stand?", run `moro audit --json`, inside the project when the owner asks about one. Each entry of `skills` has its `source` (`up to date`, `upstream +N commits`, `removed upstream`, `unreachable` or `own skill`), its `set` (`source's text`, or `hand edits` in the files `handEdits` names) and, inside a project, its `project` labels. Answer each skill the owner named, one line per layer. Offer a trial (see Trial) first for a skill in `try`, and Sync for one with any other upstream change. Name the `untaken` skills, the sources' skills the set doesn't hold, as an FYI, and each `unreachable` source with its error.
 
 ## Trial
 
