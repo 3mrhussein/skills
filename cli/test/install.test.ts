@@ -22,7 +22,7 @@ function installWorld() {
     set: {
       "install.sh": { content: INSTALL_SH, mode: 0o755 },
       "cli/package.json": "{}\n",
-      "skills/setup-moro-skills/SKILL.md": skillMd("setup-moro-skills"),
+      "skills/meta/setup-moro-skills/SKILL.md": skillMd("setup-moro-skills"),
     },
   });
   const bin = join(world.root, "bin");

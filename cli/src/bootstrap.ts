@@ -6,15 +6,19 @@ import { join, relative } from "node:path";
 import { promisify } from "node:util";
 import { readDevice, writeDevice } from "./device.js";
 import { gitRunner } from "./git.js";
+import { requireNewEnoughMoro } from "./hints.js";
 import { isFrom, type LockEntry, readLock } from "./lock.js";
 import { type Locations, readLocations } from "./locations.js";
 import type { MoroIo } from "./main.js";
 import { askYesNo } from "./prompter.js";
+import { SKILLS_DIR, skillsWithGroups, skillFolder } from "./set-layout.js";
 import { runSkills } from "./skills-cli.js";
 import { UserError } from "./user-error.js";
 
 const SKILL = "setup-moro-skills";
 const USAGE = "moro bootstrap";
+/** The Claude app's own synced skills, in `~/.claude/skills`: not the owner's to retire. */
+const SYNCED_DIR = "synced";
 
 export async function bootstrap(io: MoroIo, argv: string[]): Promise<number> {
   const yes = argv.includes("--yes") || argv.includes("-y");
@@ -24,7 +28,8 @@ export async function bootstrap(io: MoroIo, argv: string[]): Promise<number> {
   }
   const locations = readLocations(io.env);
   const say = (text: string) => io.stdout.write(`${text}\n`);
-  const clone = await findClone(io);
+  const { clone, group } = await findClone(io);
+  requireNewEnoughMoro(clone);
 
   // Explore.
   const lock = readLock(locations.lockFile);
@@ -33,7 +38,7 @@ export async function bootstrap(io: MoroIo, argv: string[]): Promise<number> {
   const current =
     installed !== undefined &&
     isFrom(installed, clone) &&
-    sameFiles(join(clone, "skills", SKILL), join(locations.home, ".agents", "skills", SKILL));
+    sameFiles(join(clone, skillFolder(SKILL, group)), join(locations.home, ".agents", "skills", SKILL));
   say(stateParagraph(lock, clone));
 
   const retired = await retireOthers(io, locations, lock, yes, say);
@@ -74,7 +79,7 @@ async function retireOthers(
   const skillsDir = join(locations.home, ".agents", "skills");
   const linksDir = join(locations.home, ".claude", "skills");
   const locked = Object.keys(lock).filter((name) => name !== SKILL);
-  const loose = [...new Set([...entries(skillsDir), ...entries(linksDir)])].filter((name) => name !== SKILL && !(name in lock));
+  const loose = [...new Set([...entries(skillsDir), ...entries(linksDir)])].filter((name) => name !== SKILL && name !== SYNCED_DIR && !(name in lock));
   const others = [...locked, ...loose].sort();
   if (others.length === 0) return { removed: [] };
 
@@ -127,15 +132,16 @@ function isLink(path: string): boolean {
   }
 }
 
-/** The root of the clone of the set that `io.cwd` is in, or a stop saying to run it from the clone. */
-async function findClone(io: MoroIo): Promise<string> {
+/** The clone of the set that `io.cwd` is in, and the group holding `setup-moro-skills`; a stop saying to run it from the clone otherwise. */
+async function findClone(io: MoroIo): Promise<{ clone: string; group: string }> {
   const root = await gitRunner(io.env)(["rev-parse", "--show-toplevel"], io.cwd).catch(() => undefined);
-  if (root === undefined || !existsSync(join(root, "skills", SKILL, "SKILL.md"))) {
+  const group = root === undefined ? undefined : skillsWithGroups(root).find(({ name }) => name === SKILL)?.group;
+  if (root === undefined || group === undefined) {
     throw new UserError(
-      `${io.cwd} isn't in a clone of the set, which holds skills/${SKILL}.\n\nNext: run \`${USAGE}\` from the set's clone.`,
+      `${io.cwd} isn't in a clone of the set, which holds ${SKILLS_DIR}/<group>/${SKILL}.\n\nNext: run \`${USAGE}\` from the set's clone.`,
     );
   }
-  return root;
+  return { clone: root, group };
 }
 
 /** One paragraph: the clone, and what's installed at user level and from where. */

@@ -18,12 +18,17 @@ export const UP_TO_DATE = "Up to date.";
 
 /**
  * Every command but `bootstrap` and `--version` starts here: it needs the device file,
- * and a clone whose manifest doesn't ask for a newer moro. Nothing is read or written before this passes.
+ * and a clone whose manifest doesn't ask for a newer moro (`bootstrap` checks the latter itself). Nothing is read or written before this passes.
  */
 export function requireDevice({ env }: { env: Env }): void {
   const device = readDevice(readLocations(env).deviceFile);
   if (!device) throw new UserError(NO_DEVICE_FILE);
-  const needed = requiredMoro(device.clone);
+  requireNewEnoughMoro(device.clone);
+}
+
+/** Stops an older moro before it reads or writes anything, when the clone's manifest asks for a newer one. */
+export function requireNewEnoughMoro(clone: string): void {
+  const needed = requiredMoro(clone);
   if (needed && compareVersions(needed, MORO_VERSION) > 0) {
     throw new UserError(`The set's manifest needs moro ${needed}, and this is ${MORO_VERSION}.\n\n${RERUN_INSTALL}`);
   }

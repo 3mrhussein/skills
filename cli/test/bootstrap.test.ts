@@ -7,7 +7,7 @@ const SKILL = "setup-moro-skills";
 const NEXT = "Next: open a project and run `/setup-moro-skills`";
 
 function worldWithSet(): World {
-  return createWorld({ set: { [`skills/${SKILL}/SKILL.md`]: skillMd(SKILL), "skills/other/SKILL.md": skillMd("other") } });
+  return createWorld({ set: { [`skills/meta/${SKILL}/SKILL.md`]: skillMd(SKILL), "skills/meta/other/SKILL.md": skillMd("other") } });
 }
 
 test("a first bootstrap records the clone, installs setup-moro-skills from it and says what's next", async () => {
@@ -50,7 +50,7 @@ test("a rerun on a current device changes nothing and ends Up to date.", async (
 test("it reinstalls setup-moro-skills when the clone's copy differs from the installed one", async () => {
   const world = worldWithSet();
   await world.run(["bootstrap"], { cwd: world.clone });
-  writeFileSync(join(world.clone, "skills", SKILL, "SKILL.md"), skillMd(SKILL).replace("The", "The newer"));
+  writeFileSync(join(world.clone, "skills", "meta", SKILL, "SKILL.md"), skillMd(SKILL).replace("The", "The newer"));
 
   const result = await world.run(["bootstrap"], { cwd: world.clone });
 
@@ -63,7 +63,7 @@ test("it reinstalls setup-moro-skills when the clone's copy differs from the ins
 test("it works from a folder inside the clone", async () => {
   const world = worldWithSet();
 
-  const result = await world.run(["bootstrap"], { cwd: join(world.clone, "skills", "other") });
+  const result = await world.run(["bootstrap"], { cwd: join(world.clone, "skills", "meta", "other") });
 
   expect(result.code, result.stderr).toBe(0);
   expect(world.readDeviceFile()).toEqual({ clone: world.clone });

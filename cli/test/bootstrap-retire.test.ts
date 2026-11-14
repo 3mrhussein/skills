@@ -8,7 +8,7 @@ const SKILL = "setup-moro-skills";
 
 /** A set, a lock entry (`locked`), a loose folder in ~/.agents/skills (`loose`) and one in ~/.claude/skills (`solo`). */
 async function messyWorld(): Promise<World> {
-  const world = createWorld({ set: { [`skills/${SKILL}/SKILL.md`]: skillMd(SKILL) } });
+  const world = createWorld({ set: { [`skills/meta/${SKILL}/SKILL.md`]: skillMd(SKILL) } });
   const source = world.source("acme/tools", { "skills/locked/SKILL.md": skillMd("locked") });
   expect((await world.skills(["add", source.url, "-g", "-y"])).code).toBe(0);
   writeFiles(world.home, {
@@ -88,7 +88,7 @@ test("declining keeps them all, takes no snapshot and warns that their names sha
 });
 
 test("with nothing else at user level it asks nothing and takes no snapshot", async () => {
-  const world = createWorld({ set: { [`skills/${SKILL}/SKILL.md`]: skillMd(SKILL) } });
+  const world = createWorld({ set: { [`skills/meta/${SKILL}/SKILL.md`]: skillMd(SKILL) } });
   mkdirSync(join(world.home, ".claude/skills"), { recursive: true });
 
   const result = await world.run(["bootstrap"], { cwd: world.clone });
