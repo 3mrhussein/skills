@@ -35,6 +35,7 @@ test("with no skill named, add picks from the source, asks each key and work, th
     "skills/tdd/SKILL.md": skillMd("tdd"),
   });
   const clone = world.cloneSet();
+  world.recordClone(clone);
 
   const result = await world.run(["add", "acme/tools"], {
     cwd: clone,
@@ -84,6 +85,7 @@ test("--all takes every skill not already in the set, and --yes asks nothing and
     "skills/tdd/SKILL.md": skillMd("tdd"),
   });
   const clone = world.cloneSet();
+  world.recordClone(clone);
 
   const result = await world.run(["add", "acme/tools", "--all", "--yes"], { cwd: clone });
 
@@ -105,6 +107,7 @@ test("--all with nothing new adds nothing", async () => {
   });
   world.source("acme/tools", { "skills/how/SKILL.md": skillMd("how") });
   const clone = world.cloneSet();
+  world.recordClone(clone);
 
   const result = await world.run(["add", "acme/tools", "--all"], { cwd: clone });
 
@@ -119,6 +122,7 @@ test("picking nothing adds nothing and asks nothing more", async () => {
   const world = createWorld();
   world.source("acme/tools", { "skills/arena/SKILL.md": skillMd("arena") });
   const clone = world.cloneSet();
+  world.recordClone(clone);
 
   const result = await world.run(["add", "acme/tools"], { cwd: clone, answers: [[]] });
 
@@ -134,6 +138,7 @@ test("the owner can type another key, and a key that isn't a skill name is asked
     "skills/react-best-practices/SKILL.md": skillMd("vercel-react-best-practices"),
   });
   const clone = world.cloneSet();
+  world.recordClone(clone);
 
   const result = await world.run(["add", "vercel/agent-skills", "vercel-react-best-practices"], {
     cwd: clone,
@@ -164,6 +169,7 @@ test("the work prompt puts the skill in work/, and --work skips the prompt", asy
     "skills/release/SKILL.md": skillMd("release"),
   });
   const clone = world.cloneSet();
+  world.recordClone(clone);
 
   const asked = await world.run(["add", "company/work", "deploy"], { cwd: clone, answers: ["deploy", "yes", "yes"] });
   const flagged = await world.run(["add", "company/work", "release", "--work"], { cwd: clone, answers: ["release", "yes"] });
@@ -179,6 +185,7 @@ test("a key clashing with the set: keeping the set's skill adds nothing from the
   const world = createWorld({ set: { "skills/tdd/SKILL.md": skillMd("tdd") } });
   world.source("poteto/pstack", { "skills/tdd/SKILL.md": `${skillMd("tdd")}Theirs.\n` });
   const clone = world.cloneSet();
+  world.recordClone(clone);
 
   const result = await world.run(["add", "poteto/pstack", "tdd"], { cwd: clone, answers: ["tdd", "keep"] });
 
@@ -204,6 +211,7 @@ test("a key clashing with the set: renaming the newcomer adds a rename rule on i
     "skills/architect/SKILL.md": `${skillMd("architect")}Then run tdd.\n`,
   });
   const clone = world.cloneSet();
+  world.recordClone(clone);
 
   const result = await world.run(["add", "poteto/pstack", "tdd", "architect"], {
     cwd: clone,
@@ -240,6 +248,7 @@ test("a key clashing with the set: taking the newcomer replaces the set's skill 
   });
   const source = world.source("poteto/pstack", { "skills/tdd/SKILL.md": `${skillMd("tdd")}Theirs.\n` });
   const clone = world.cloneSet();
+  world.recordClone(clone);
 
   const result = await world.run(["add", "poteto/pstack", "tdd"], {
     cwd: clone,
@@ -260,6 +269,7 @@ test("replacing a skill in work/ with a newcomer in skills/ moves it", async () 
   const world = createWorld({ set: { "work/tdd/SKILL.md": skillMd("tdd") } });
   world.source("poteto/pstack", { "skills/tdd/SKILL.md": `${skillMd("tdd")}Theirs.\n` });
   const clone = world.cloneSet();
+  world.recordClone(clone);
 
   const result = await world.run(["add", "poteto/pstack", "tdd"], {
     cwd: clone,
@@ -276,6 +286,7 @@ test("a set skill with uncommitted changes can't be replaced", async () => {
   const world = createWorld({ set: { "skills/tdd/SKILL.md": skillMd("tdd") } });
   world.source("poteto/pstack", { "skills/tdd/SKILL.md": `${skillMd("tdd")}Theirs.\n` });
   const clone = world.cloneSet();
+  world.recordClone(clone);
   writeFiles(clone, { "skills/tdd/SKILL.md": `${skillMd("tdd")}Mine, unsaved.\n` });
 
   const result = await world.run(["add", "poteto/pstack", "tdd"], { cwd: clone, answers: ["tdd", "replace"] });
@@ -293,6 +304,7 @@ test("a key already taken earlier in the same run is asked again", async () => {
     "b/SKILL.md": skillMd("code-review"),
   });
   const clone = world.cloneSet();
+  world.recordClone(clone);
 
   const result = await world.run(["add", "acme/tools", "review", "code-review"], {
     cwd: clone,
@@ -308,6 +320,7 @@ test("a clash under --yes stops with how to resolve it", async () => {
   const world = createWorld({ set: { "skills/tdd/SKILL.md": skillMd("tdd") } });
   world.source("poteto/pstack", { "skills/tdd/SKILL.md": skillMd("tdd") });
   const clone = world.cloneSet();
+  world.recordClone(clone);
 
   const result = await world.run(["add", "poteto/pstack", "tdd", "--yes"], { cwd: clone });
 
@@ -323,6 +336,7 @@ test.each([
   const world = createWorld();
   world.source("acme/tools", { "skills/hello/SKILL.md": skillMd("hello") });
   const clone = world.cloneSet();
+  world.recordClone(clone);
 
   const result = await world.run(["add", ref], { cwd: clone });
 
@@ -338,6 +352,7 @@ test("declining the push leaves the commit in the clone and says no machine sees
   const world = createWorld();
   world.source("acme/tools", { "skills/hello/SKILL.md": skillMd("hello") });
   const clone = world.cloneSet();
+  world.recordClone(clone);
   const before = remoteHead(world);
 
   const result = await world.run(["add", "acme/tools", "hello"], { cwd: clone, answers: ["hello", "no", "no"] });
@@ -354,6 +369,7 @@ test("a failed push keeps the commit and says what to do", async () => {
   const world = createWorld();
   world.source("acme/tools", { "skills/hello/SKILL.md": skillMd("hello") });
   const clone = world.cloneSet();
+  world.recordClone(clone);
   world.set.commit({ "README.md": "Someone else pushed.\n" });
 
   const result = await world.run(["add", "acme/tools", "hello", "--yes"], { cwd: clone });
@@ -372,6 +388,7 @@ test("keeping each skill's own name still asks a key for one that would take an 
     "b/SKILL.md": skillMd("review"),
   });
   const clone = world.cloneSet();
+  world.recordClone(clone);
 
   const result = await world.run(["add", "acme/tools"], {
     cwd: clone,
@@ -396,6 +413,7 @@ test("a new rename rule says which of the source's skills already in the set kee
   });
   world.source("poteto/pstack", { "skills/tdd/SKILL.md": skillMd("tdd"), "skills/how/SKILL.md": skillMd("how") });
   const clone = world.cloneSet();
+  world.recordClone(clone);
 
   const result = await world.run(["add", "poteto/pstack", "tdd"], {
     cwd: clone,

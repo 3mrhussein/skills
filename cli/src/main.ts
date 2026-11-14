@@ -1,8 +1,8 @@
-import { existsSync } from "node:fs";
 import { add } from "./add.js";
 import type { Prompter } from "./prompter.js";
 import { type Env, readLocations } from "./locations.js";
-import { setup } from "./setup.js";
+import { bootstrap } from "./bootstrap.js";
+import { readDevice } from "./device.js";
 import { UserError } from "./user-error.js";
 import { MORO_VERSION } from "./version.js";
 
@@ -34,11 +34,13 @@ async function run(io: MoroIo): Promise<number> {
   const [command, ...args] = io.argv;
   switch (command) {
     case undefined:
+      requireDevice(io);
       return status(io);
     case "add":
+      requireDevice(io);
       return add(io, args);
-    case "setup":
-      return setup(io, args);
+    case "bootstrap":
+      return bootstrap(io, args);
     case "--version":
       io.stdout.write(`${MORO_VERSION}\n`);
       return 0;
@@ -48,9 +50,13 @@ async function run(io: MoroIo): Promise<number> {
   }
 }
 
-function status(io: MoroIo): number {
-  if (!existsSync(readLocations(io.env).machineFile)) {
-    io.stdout.write("This machine isn't set up for moro's skill set.\n\nNext: run `moro setup`\n");
+/** Every command but `bootstrap` and `--version` needs the device file, which `./install.sh` writes. */
+function requireDevice(io: MoroIo): void {
+  if (!readDevice(readLocations(io.env).deviceFile)) {
+    throw new UserError("This device has no device file, so moro doesn't know where the set's clone is.\n\nNext: run ./install.sh in the set's clone.");
   }
+}
+
+function status(_io: MoroIo): number {
   return 0;
 }

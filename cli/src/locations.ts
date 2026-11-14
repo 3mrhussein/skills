@@ -7,10 +7,10 @@ export type Env = Record<string, string | undefined>;
 
 export interface Locations {
   home: string;
-  /** moro's config folder, which holds the per-machine file. */
+  /** moro's config folder, which holds the device file. */
   configDir: string;
-  /** The per-machine file: this machine's choices. Never committed. */
-  machineFile: string;
+  /** The device file: where this device's clone is. Never committed. */
+  deviceFile: string;
   /** The `skills` CLI's user-level lock, where that CLI keeps it. */
   lockFile: string;
   /** The set's remote, as `git` and the `skills` CLI take it. Not the set's clone. */
@@ -27,7 +27,7 @@ export function readLocations(env: Env): Locations {
   return {
     home,
     configDir,
-    machineFile: join(configDir, "config.json"),
+    deviceFile: join(configDir, "config.json"),
     // The `skills` CLI reads XDG_STATE_HOME as given, relative or not.
     lockFile: env.XDG_STATE_HOME
       ? join(env.XDG_STATE_HOME, "skills", ".skill-lock.json")

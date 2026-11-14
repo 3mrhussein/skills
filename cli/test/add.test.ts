@@ -14,6 +14,7 @@ test("intake copies the source's skill folder into skills/, writes the manifest 
     "skills/hello/references/notes.md": "Some notes.\n",
   });
   const clone = world.cloneSet();
+  world.recordClone(clone);
 
   const result = await world.run(["add", source.url, "hello", "--yes"], { cwd: clone });
 
@@ -41,6 +42,7 @@ test.each([
     "skills/other/SKILL.md": skillMd("other"),
   });
   const clone = world.cloneSet();
+  world.recordClone(clone);
 
   const result = await world.run(["add", ...refArgs, "--yes"], { cwd: clone });
 
@@ -62,6 +64,7 @@ test.each([
   source.tag("v1");
   source.commit({ "skills/hello/SKILL.md": `${skillMd("hello")}Newer.\n` });
   const clone = world.cloneSet();
+  world.recordClone(clone);
 
   const result = await world.run(["add", `acme/tools#${refFor(first)}`, "hello", "--yes"], { cwd: clone });
 
@@ -75,6 +78,7 @@ test("#ref pins the latest commit of a branch other than the default one", async
   const source = world.source("acme/tools", { "skills/hello/SKILL.md": skillMd("hello") });
   const onBranch = source.branch("next", { "skills/hello/SKILL.md": `${skillMd("hello")}Next.\n` });
   const clone = world.cloneSet();
+  world.recordClone(clone);
 
   const result = await world.run(["add", "acme/tools#next@hello", "--yes"], { cwd: clone });
 
@@ -88,6 +92,7 @@ test("the key is the frontmatter name, while path keeps the source's own folder"
     "skills/react-best-practices/SKILL.md": skillMd("vercel-react-best-practices"),
   });
   const clone = world.cloneSet();
+  world.recordClone(clone);
 
   const result = await world.run(["add", "vercel/agent-skills", "vercel-react-best-practices", "--yes"], {
     cwd: clone,
@@ -107,6 +112,7 @@ test("--work puts the skill in work/ and the manifest entry looks the same", asy
   const world = createWorld();
   const source = world.source("company/work", { "skills/deploy/SKILL.md": skillMd("deploy") });
   const clone = world.cloneSet();
+  world.recordClone(clone);
 
   const result = await world.run(["add", "company/work", "deploy", "--work", "--yes"], { cwd: clone });
 
@@ -130,6 +136,7 @@ test("a new source whose repo name is taken gets owner-repo as its id", async ()
   const world = createWorld({ set: { "manifest.json": manifestWith({ tools: { repo: "other/tools", rename: [] } }) } });
   world.source("acme/tools", { "skills/hello/SKILL.md": skillMd("hello") });
   const clone = world.cloneSet();
+  world.recordClone(clone);
 
   const result = await world.run(["add", "acme/tools", "hello", "--yes"], { cwd: clone });
 
@@ -148,6 +155,7 @@ test("a source already in the manifest keeps its id and its rename rules", async
   const world = createWorld({ set: { "manifest.json": manifestWith({ acme: { repo: "acme/tools", rename: rules } }) } });
   world.source("acme/tools", { "skills/hello/SKILL.md": skillMd("hello") });
   const clone = world.cloneSet();
+  world.recordClone(clone);
 
   const result = await world.run(["add", "https://github.com/acme/tools", "hello", "--yes"], { cwd: clone });
 
@@ -179,6 +187,7 @@ test("rename rules apply in order and whole-word to text and file names, and the
     "skills/engineering/ask-matt/matt-notes/matters.md": "Unchanged name.\n",
   });
   const clone = world.cloneSet();
+  world.recordClone(clone);
 
   const result = await world.run(["add", "mattpocock/skills", "ask-matt", "--yes"], { cwd: clone });
 
@@ -217,6 +226,7 @@ test("intake takes every file verbatim: licences, tool metadata, hidden and bina
     "tdd/scripts/run.sh": "#!/bin/sh\necho hi\n",
   });
   const clone = world.cloneSet();
+  world.recordClone(clone);
 
   const result = await world.run(["add", "mattpocock/skills", "tdd", "--yes"], { cwd: clone });
 
@@ -241,6 +251,7 @@ test("several skills from one source make one commit, and own skills get no mani
     "skills/two/SKILL.md": skillMd("two"),
   });
   const clone = world.cloneSet();
+  world.recordClone(clone);
   // The lock is never read, so a broken one changes nothing.
   writeFiles(world.home, { ".agents/.skill-lock.json": "not json" });
 
@@ -258,6 +269,7 @@ test("the commit takes only intake's files, leaving the owner's other changes as
   const world = createWorld({ set: { "README.md": "Old.\n" } });
   world.source("acme/tools", { "skills/hello/SKILL.md": skillMd("hello") });
   const clone = world.cloneSet();
+  world.recordClone(clone);
   writeFiles(clone, { "README.md": "New.\n", "notes.md": "Draft.\n" });
   world.git(["add", "README.md"], clone);
 
@@ -275,6 +287,7 @@ test("without a repo-level git identity, intake stops before changing anything",
   const world = createWorld();
   world.source("acme/tools", { "skills/hello/SKILL.md": skillMd("hello") });
   const clone = world.cloneSet({ identity: false });
+  world.recordClone(clone);
 
   const result = await world.run(["add", "acme/tools", "hello", "--yes"], { cwd: clone });
 
@@ -289,6 +302,7 @@ test.each([["skills"], ["work"]])("a skill whose name is already in %s/ stops in
   const world = createWorld({ set: { [`${folder}/hello/SKILL.md`]: skillMd("hello") } });
   world.source("acme/tools", { "skills/hello/SKILL.md": `${skillMd("hello")}Theirs.\n` });
   const clone = world.cloneSet();
+  world.recordClone(clone);
 
   const result = await world.run(["add", "acme/tools", "hello", "--yes"], { cwd: clone });
 
@@ -301,6 +315,7 @@ test.each([["skills"], ["work"]])("a skill whose name is already in %s/ stops in
 test("an option add doesn't know stops it", async () => {
   const world = createWorld();
   const clone = world.cloneSet();
+  world.recordClone(clone);
 
   const result = await world.run(["add", "acme/tools", "hello", "--yes", "--force"], { cwd: clone });
 
@@ -317,6 +332,7 @@ test("two skills that render to the same key stop intake", async () => {
     "b/SKILL.md": skillMd("moro-tdd"),
   });
   const clone = world.cloneSet();
+  world.recordClone(clone);
 
   const result = await world.run(["add", "mattpocock/skills", "matt-tdd", "moro-tdd", "--yes"], { cwd: clone });
 
@@ -329,6 +345,7 @@ test("when the commit fails, intake leaves the set's clone as it was", async () 
   const world = createWorld({ set: { "manifest.json": manifestWith({}) } });
   world.source("acme/tools", { "skills/hello/SKILL.md": skillMd("hello") });
   const clone = world.cloneSet();
+  world.recordClone(clone);
   writeFiles(clone, { ".git/hooks/pre-commit": "#!/bin/sh\nexit 1\n" });
   chmodSync(join(clone, ".git/hooks/pre-commit"), 0o755);
 
@@ -350,6 +367,7 @@ test("intake keeps file modes and symlinks", async () => {
     "tdd/link.md": { symlink: "notes.md" },
   });
   const clone = world.cloneSet();
+  world.recordClone(clone);
 
   const result = await world.run(["add", "mattpocock/skills", "tdd", "--yes"], { cwd: clone });
 
@@ -365,6 +383,7 @@ test("a file that isn't UTF-8 keeps its bytes", async () => {
   const bytes = Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a]); // "café" in Latin-1
   source.commit({ "skills/hello/latin1.txt": { content: bytes } });
   const clone = world.cloneSet();
+  world.recordClone(clone);
 
   const result = await world.run(["add", "acme/tools", "hello", "--yes"], { cwd: clone });
 
@@ -378,6 +397,7 @@ test("a GitHub SSH URL is the same source as its owner/repo shorthand", async ()
   });
   world.source("mattpocock/skills", { "skills/ask-matt/SKILL.md": skillMd("ask-matt") });
   const clone = world.cloneSet();
+  world.recordClone(clone);
 
   const result = await world.run(["add", "git@github.com:mattpocock/skills.git", "ask-matt", "--yes"], { cwd: clone });
 
@@ -393,6 +413,7 @@ test("owner/repo@skill and named skills add up, and a name given twice is taken 
     "skills/other/SKILL.md": skillMd("other"),
   });
   const clone = world.cloneSet();
+  world.recordClone(clone);
 
   const result = await world.run(["add", "acme/tools@hello", "other", "hello", "--yes"], { cwd: clone });
 
